@@ -26,6 +26,7 @@ This index points to the focused guides in the repository. The root [README](../
 
 ## Develop and contribute
 
+- [Intelligent Codex delegation layer](intelligent-codex-delegation.md) — planned task-level autocomplete, verification, scheduling, and quality controls.
 - [Contributor guide](../CONTRIBUTING.md) — development loop, testing expectations, and contribution policy.
 - [How the router works](../README.md#how-it-works) — architecture and fallback behavior.
 - [Database migration guide](../server/src/db/README.md) — migration CLI and conventions.
