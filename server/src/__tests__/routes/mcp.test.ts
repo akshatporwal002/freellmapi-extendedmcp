@@ -124,14 +124,41 @@ describe('MCP server (/mcp, stateless Streamable HTTP)', () => {
     expect(data.top_models.some((m: any) => m.model_id === 'test-model')).toBe(true);
   });
 
-  it('lists the six gateway tools with schemas', async () => {
+  it('lists the gateway and delegation tools with schemas', async () => {
     const { body } = await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
     const names = body.result.tools.map((t: any) => t.name).sort();
-    expect(names).toEqual(['cache_stats', 'list_models', 'provider_health', 'routing_info', 'set_routing_strategy', 'usage_summary']);
+    expect(names).toEqual(['cache_stats', 'delegate_task', 'list_models', 'provider_health', 'routing_info', 'set_routing_strategy', 'usage_summary']);
     for (const tool of body.result.tools) {
       expect(tool.description.length).toBeGreaterThan(20);
       expect(tool.inputSchema.type).toBe('object');
     }
+  });
+
+  it('exposes a strict delegate_task schema and returns validation errors as tool results', async () => {
+    const { body: listed } = await rpc({ jsonrpc: '2.0', id: 20, method: 'tools/list' });
+    const tool = listed.result.tools.find((item: any) => item.name === 'delegate_task');
+    expect(tool.inputSchema.additionalProperties).toBe(false);
+    expect(tool.inputSchema.properties.selection_mode.enum).toEqual(['standard', 'task_aware', 'adaptive']);
+    expect(tool.inputSchema.required).toContain('acceptance_criteria');
+
+    const { body } = await rpc({
+      jsonrpc: '2.0', id: 21, method: 'tools/call',
+      params: {
+        name: 'delegate_task',
+        arguments: {
+          objective: 'Read an arbitrary path',
+          category: 'analysis',
+          size: 'small',
+          risk: 'low',
+          relevant_context: [],
+          permitted_files: ['C:\\Users\\secret.txt'],
+          acceptance_criteria: ['Return findings'],
+          output_mode: 'analysis',
+        },
+      },
+    });
+    expect(body.result.isError).toBe(true);
+    expect(body.result.content[0].text).toContain('repository-relative path');
   });
 
   it('list_models returns catalog entries with supported_parameters', async () => {

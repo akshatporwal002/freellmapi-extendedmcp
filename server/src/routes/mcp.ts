@@ -7,6 +7,7 @@ import { supportedParametersForPlatforms } from '../lib/sampling-params.js';
 import { getRoutingScores, getRoutingStrategy, setRoutingStrategy } from '../services/router.js';
 import type { RoutingStrategy } from '../services/scoring.js';
 import { getCacheStats } from '../services/cache.js';
+import { executeDelegateTask } from '../services/delegation.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // MCP server for the gateway (POST /mcp) — Model Context Protocol over
@@ -183,7 +184,7 @@ function setStrategy(args: Record<string, unknown>): unknown {
 interface McpTool {
   description: string;
   inputSchema: Record<string, unknown>;
-  run: (args: Record<string, unknown>) => unknown;
+  run: (args: Record<string, unknown>) => unknown | Promise<unknown>;
 }
 
 const TOOLS: Record<string, McpTool> = {
@@ -233,6 +234,56 @@ const TOOLS: Record<string, McpTool> = {
     inputSchema: { type: 'object', properties: {} },
     run: () => getCacheStats(),
   },
+  delegate_task: {
+    description: 'Delegate one bounded coding or analysis task to an untrusted worker model. The worker receives only caller-supplied context, cannot access files or execute commands, and returns a candidate that always requires Codex review.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        objective: { type: 'string', minLength: 1, maxLength: 10000 },
+        category: {
+          type: 'string',
+          enum: ['implementation', 'bug_fix', 'debugging', 'testing', 'documentation', 'review', 'refactoring', 'research', 'repository_analysis'],
+        },
+        size: { type: 'string', enum: ['small', 'medium', 'large'] },
+        risk: { type: 'string', enum: ['low', 'medium', 'high'] },
+        relevant_context: {
+          type: 'array',
+          maxItems: 50,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              path: { type: 'string', description: 'Repository-relative source path; content is supplied separately and is never read by the worker.' },
+              label: { type: 'string' },
+              content: { type: 'string', maxLength: 200000 },
+              sha256: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+            },
+            required: ['content'],
+            anyOf: [{ required: ['path'] }, { required: ['label'] }],
+          },
+        },
+        permitted_files: {
+          type: 'array',
+          maxItems: 100,
+          items: { type: 'string', description: 'Repository-relative path; absolute paths and parent traversal are rejected.' },
+          default: [],
+        },
+        logical_boundaries: { type: 'array', maxItems: 50, items: { type: 'string' }, default: [] },
+        constraints: { type: 'array', maxItems: 100, items: { type: 'string' }, default: [] },
+        invariants: { type: 'array', maxItems: 100, items: { type: 'string' }, default: [] },
+        acceptance_criteria: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'string' } },
+        output_mode: { type: 'string', enum: ['patch', 'analysis'] },
+        selection_mode: { type: 'string', enum: ['standard', 'task_aware', 'adaptive'], default: 'task_aware' },
+        input_token_limit: { type: 'integer', minimum: 128, maximum: 200000, default: 32000 },
+        output_token_limit: { type: 'integer', minimum: 64, maximum: 16384, default: 4096 },
+        max_attempts: { type: 'integer', minimum: 1, maximum: 5, default: 2 },
+        time_limit_ms: { type: 'integer', minimum: 1000, maximum: 120000, default: 45000 },
+      },
+      required: ['objective', 'category', 'size', 'risk', 'relevant_context', 'acceptance_criteria', 'output_mode'],
+    },
+    run: executeDelegateTask,
+  },
 };
 
 // ── JSON-RPC dispatch ────────────────────────────────────────────────────
@@ -242,14 +293,14 @@ const TOOLS: Record<string, McpTool> = {
 // `id` member (id:null is a — discouraged — request and gets a response);
 // detecting notifications by the `notifications/` method prefix answered
 // no-id requests and 202'd id-carrying notifications.
-function handleRpc(msg: JsonRpcRequest): unknown | undefined {
+async function handleRpc(msg: JsonRpcRequest): Promise<unknown | undefined> {
   const isNotification = msg.id === undefined;
   const respond = (response: unknown) => (isNotification ? undefined : response);
   const id = msg.id ?? null;
-  return respond(dispatchRpc(msg, id));
+  return respond(await dispatchRpc(msg, id));
 }
 
-function dispatchRpc(msg: JsonRpcRequest, id: number | string | null): unknown {
+async function dispatchRpc(msg: JsonRpcRequest, id: number | string | null): Promise<unknown> {
   switch (msg.method) {
     case 'initialize': {
       return rpcResult(id, {
@@ -278,7 +329,7 @@ function dispatchRpc(msg: JsonRpcRequest, id: number | string | null): unknown {
       if (!tool) return rpcError(id, -32602, `Unknown tool: ${name}`);
       try {
         const args = (msg.params?.arguments as Record<string, unknown>) ?? {};
-        return rpcResult(id, toolJson(tool.run(args)));
+        return rpcResult(id, toolJson(await tool.run(args)));
       } catch (err: any) {
         // Tool-level failures are results with isError, not protocol errors.
         return rpcResult(id, toolError(err?.message ?? 'tool failed'));
@@ -306,7 +357,7 @@ function authenticate(req: Request, res: Response): boolean {
   return true;
 }
 
-mcpRouter.post('/', (req: Request, res: Response) => {
+mcpRouter.post('/', async (req: Request, res: Response) => {
   if (!authenticate(req, res)) return;
 
   const body = req.body;
@@ -321,7 +372,7 @@ mcpRouter.post('/', (req: Request, res: Response) => {
     return;
   }
 
-  const response = handleRpc(body as JsonRpcRequest);
+  const response = await handleRpc(body as JsonRpcRequest);
   if (response === undefined) {
     res.status(202).end(); // notification — accepted, nothing to say
     return;

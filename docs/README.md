@@ -27,6 +27,8 @@ This index points to the focused guides in the repository. The root [README](../
 ## Develop and contribute
 
 - [Intelligent Codex delegation layer](intelligent-codex-delegation.md) — planned task-level autocomplete, verification, scheduling, and quality controls.
+- [Intelligent delegation MCP API](intelligent-delegation-api.md) — bounded task packets, request/response examples, and safety rules.
+- [Delegation implementation progress](delegation-implementation-progress.md) — phase gates, verification results, commits, and limitations.
 - [Contributor guide](../CONTRIBUTING.md) — development loop, testing expectations, and contribution policy.
 - [How the router works](../README.md#how-it-works) — architecture and fallback behavior.
 - [Database migration guide](../server/src/db/README.md) — migration CLI and conventions.
