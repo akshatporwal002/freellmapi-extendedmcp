@@ -5,8 +5,7 @@
 - Branch: `codex/intelligent-delegation-dev`
 - Current phase: Phase 4 safe stateless subset complete
 - Checkpoint: final verification and security audit
-- Remote status: all implementation checkpoints through token calibration pushed;
-  final audit checkpoint pending
+- Remote status: all implementation and audit checkpoints pushed
 
 ## Architecture decisions
 
@@ -140,7 +139,8 @@ therefore run with the approved unsandboxed execution path.
   `origin/codex/intelligent-delegation-dev`.
 - `0502658 feat: calibrate delegation token predictions` — pushed to
   `origin/codex/intelligent-delegation-dev`.
-- Final audit checkpoint — pending.
+- `02f4819 docs: finalize delegation implementation audit` — pushed to
+  `origin/codex/intelligent-delegation-dev`.
 
 ## Final audit
 
@@ -151,6 +151,7 @@ therefore run with the approved unsandboxed execution path.
   redaction unit test; it contains synthetic fixture text, not key material.
 - Local `.codex/` content remains untracked and was not inspected or staged.
 - Full branch whitespace checks pass after final EOF cleanup.
+- Local and remote development-branch heads were confirmed equal at `02f4819`.
 
 ## Known limitations
 
