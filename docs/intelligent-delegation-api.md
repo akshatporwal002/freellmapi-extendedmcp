@@ -236,3 +236,18 @@ decision before it can become an execution graph.
 `delegation_capability_canary` runs a normal task packet with forced low risk,
 one attempt, and shadow mode. A canary can collect observed capability evidence
 without creating a candidate that may be integrated.
+
+`delegate_task` also accepts an optional `quality_floor` with a minimum sample
+count, minimum lower confidence bound for usable outcomes, and maximum upper
+confidence bound for regressions. Each selected route is checked before
+inference. A failing model is skipped without a provider-health penalty; if no
+route meets the floor, the task fails safely instead of lowering the policy.
+`evaluate_delegation_quality_floor` exposes the same calculation without
+dispatching a task.
+
+`estimate_delegation_savings` requires a caller-supplied direct-Codex token
+estimate and current planning overhead. Matching reviewed, non-shadow records
+with complete worker and review usage produce separate Student-t 95% mean
+intervals for premium-token savings, worker usage, and Codex review usage.
+Below the requested sample floor it returns `insufficient_evidence`; unreported
+rewrite or verification effort is never silently assumed to be zero.

@@ -7,6 +7,10 @@ import {
   type DelegateTaskResult,
   type DelegationDependencies,
 } from './delegation.js';
+import {
+  delegationQualityFloorSchema,
+  evaluateModelQualityFloor,
+} from './delegation-quality.js';
 
 const profileQuerySchema = z.object({
   repository_id: z.string().min(1).max(200).optional(),
@@ -54,6 +58,25 @@ function wilson(successes: number, samples: number): { low: number; high: number
   const center = (p + z * z / (2 * samples)) / denominator;
   const margin = z * Math.sqrt((p * (1 - p) + z * z / (4 * samples)) / samples) / denominator;
   return { low: round(Math.max(0, center - margin)), high: round(Math.min(1, center + margin)) };
+}
+
+function meanConfidence95(values: number[]): { mean: number; low: number; high: number } | null {
+  if (values.length < 2) return null;
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (values.length - 1);
+  const standardError = Math.sqrt(variance / values.length);
+  const studentTCritical95 = [
+    Number.POSITIVE_INFINITY, 12.706, 4.303, 3.182, 2.776,
+    2.571, 2.447, 2.365, 2.306, 2.262,
+  ];
+  const degreesOfFreedom = values.length - 1;
+  const critical = degreesOfFreedom <= 10
+    ? studentTCritical95[degreesOfFreedom]
+    : degreesOfFreedom < 20 ? 2.201
+    : degreesOfFreedom < 30 ? 2.045
+    : 1.96;
+  const margin = critical * standardError;
+  return { mean: round(mean, 1), low: round(mean - margin, 1), high: round(mean + margin, 1) };
 }
 
 function trustTier(
@@ -208,6 +231,90 @@ export function recommendDelegationDecomposition(rawInput: unknown) {
     note: required
       ? 'These are mechanical ownership boundaries, not architectural decisions; Codex must define each job contract.'
       : 'The task appears bounded enough for direct delegation under current heuristics.',
+  };
+}
+
+const qualityFloorEvaluationSchema = z.object({
+  repository_id: z.string().min(1).max(200),
+  category: z.enum([
+    'implementation', 'bug_fix', 'debugging', 'testing', 'documentation',
+    'review', 'refactoring', 'research', 'repository_analysis',
+  ]),
+  provider: z.string().min(1).max(100),
+  model: z.string().min(1).max(300),
+  policy: delegationQualityFloorSchema,
+}).strict();
+
+export function evaluateDelegationQualityFloor(rawInput: unknown) {
+  const input = qualityFloorEvaluationSchema.parse(rawInput);
+  return evaluateModelQualityFloor(input);
+}
+
+const savingsEstimateSchema = z.object({
+  repository_id: z.string().min(1).max(200),
+  category: z.enum([
+    'implementation', 'bug_fix', 'debugging', 'testing', 'documentation',
+    'review', 'refactoring', 'research', 'repository_analysis',
+  ]),
+  provider: z.string().min(1).max(100),
+  model: z.string().min(1).max(300),
+  estimated_direct_codex_tokens: z.number().int().min(1).max(10_000_000),
+  current_planning_tokens: z.number().int().min(0).max(10_000_000).default(0),
+  min_samples: z.number().int().min(2).max(1000).default(5),
+}).strict();
+
+export function estimateDelegationSavings(rawInput: unknown) {
+  const input = savingsEstimateSchema.parse(rawInput);
+  const rows = getDb().prepare(`
+    SELECT prompt_tokens, output_tokens, review_tokens
+      FROM delegation_history
+     WHERE repository_hash = ?
+       AND category = ?
+       AND provider = ?
+       AND model_id = ?
+       AND outcome IS NOT NULL
+       AND shadow_mode = 0
+       AND prompt_tokens IS NOT NULL
+       AND output_tokens IS NOT NULL
+       AND review_tokens IS NOT NULL
+     ORDER BY created_at, task_id
+  `).all(
+    hash(input.repository_id),
+    input.category,
+    input.provider,
+    input.model,
+  ) as Array<{ prompt_tokens: number; output_tokens: number; review_tokens: number }>;
+
+  if (rows.length < input.min_samples) {
+    return {
+      status: 'insufficient_evidence' as const,
+      samples: rows.length,
+      required_samples: input.min_samples,
+      estimate: null,
+      missing_evidence: 'reviewed non-shadow executions with complete worker and review token usage',
+    };
+  }
+  const workerTokens = rows.map(row => row.prompt_tokens + row.output_tokens);
+  const reviewTokens = rows.map(row => row.review_tokens);
+  const premiumSavings = reviewTokens.map(tokens =>
+    input.estimated_direct_codex_tokens - input.current_planning_tokens - tokens,
+  );
+  return {
+    status: 'estimated' as const,
+    samples: rows.length,
+    required_samples: input.min_samples,
+    estimate: {
+      premium_token_savings_confidence_95: meanConfidence95(premiumSavings),
+      worker_token_usage_confidence_95: meanConfidence95(workerTokens),
+      codex_review_token_confidence_95: meanConfidence95(reviewTokens),
+      assumptions: {
+        estimated_direct_codex_tokens: input.estimated_direct_codex_tokens,
+        current_planning_tokens: input.current_planning_tokens,
+        rewrite_tokens_included_only_when_reported_as_review_tokens: true,
+      },
+      confidence: rows.length >= 30 ? 'high' as const : rows.length >= 10 ? 'moderate' as const : 'low' as const,
+    },
+    warning: 'This is a historical mean interval, not a guarantee; unreported rewrite or verification effort is excluded.',
   };
 }
 

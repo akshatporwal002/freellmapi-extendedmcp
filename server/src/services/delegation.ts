@@ -17,6 +17,11 @@ import {
   type RouteResult,
 } from './router.js';
 import { getDb } from '../db/index.js';
+import {
+  delegationQualityFloorSchema,
+  evaluateModelQualityFloor,
+  type DelegationQualityFloorDecision,
+} from './delegation-quality.js';
 
 export const DELEGATION_SCHEMA_VERSION = '1.0';
 export const DELEGATION_PROMPT_VERSION = '1.0';
@@ -81,6 +86,7 @@ export const delegateTaskSchema = z.object({
   shadow_mode: z.boolean().default(false),
   review_mode: z.enum(['none', 'blind', 'adversarial']).default('none'),
   repository_id: z.string().min(1).max(200).default('default'),
+  quality_floor: delegationQualityFloorSchema.optional(),
 }).strict();
 
 export type DelegateTaskInput = z.infer<typeof delegateTaskSchema>;
@@ -151,6 +157,7 @@ export interface DelegateTaskResult {
   review_mode: 'none' | 'blind' | 'adversarial';
   quality_gate: 'pass' | 'review_required' | 'rejected';
   patch_assessment: PatchAssessment | null;
+  quality_floor: DelegationQualityFloorDecision | null;
   codex_review_required: true;
   versions: {
     schema: string;
@@ -528,6 +535,7 @@ export async function executeDelegateTask(
       review_mode: input.review_mode,
       quality_gate: 'review_required',
       patch_assessment: null,
+      quality_floor: null,
     }, Date.now() - startedAt);
   }
 
@@ -536,6 +544,7 @@ export async function executeDelegateTask(
   const attempts: DelegationAttemptSummary[] = [];
   let terminal: DelegateTaskResult | undefined;
   let terminalFailure: { reason: string; warnings: string[] } | undefined;
+  let lastQualityFloor: DelegationQualityFloorDecision | null = null;
 
   await dependencies.runFallback({
     maxRetries: input.max_attempts,
@@ -550,6 +559,26 @@ export async function executeDelegateTask(
       input,
     ),
     dispatch: async (route, ordinal) => {
+      if (input.quality_floor) {
+        lastQualityFloor = evaluateModelQualityFloor({
+          repository_id: input.repository_id,
+          category: input.category,
+          provider: route.platform,
+          model: route.modelId,
+          policy: input.quality_floor,
+        });
+        if (!lastQualityFloor.allowed) {
+          throw Object.assign(
+            new Error(`delegation quality floor rejected ${route.platform}/${route.modelId}: ${lastQualityFloor.reason}`),
+            {
+              status: 422,
+              skipBench: true,
+              skipModelForRequest: true,
+              delegationQualityFloor: true,
+            },
+          );
+        }
+      }
       const response = await route.provider.chatCompletion(
         route.apiKey,
         built.messages,
@@ -609,6 +638,7 @@ export async function executeDelegateTask(
         review_mode: input.review_mode,
         quality_gate: qualityGate(assessment, validationWarnings),
         patch_assessment: assessment,
+        quality_floor: lastQualityFloor,
       };
       return 'done';
     },
@@ -618,7 +648,9 @@ export async function executeDelegateTask(
         platform: route.platform,
         model: route.modelId,
         outcome: 'failed',
-        error_class: typeof err?.status === 'number' ? `http_${err.status}` : 'provider_error',
+        error_class: err?.delegationQualityFloor === true
+          ? 'quality_floor'
+          : typeof err?.status === 'number' ? `http_${err.status}` : 'provider_error',
       });
     },
     onFatal: (_route, err) => {
@@ -648,6 +680,7 @@ export async function executeDelegateTask(
     review_mode: input.review_mode,
     quality_gate: 'review_required',
     patch_assessment: null,
+    quality_floor: lastQualityFloor,
   }, Date.now() - startedAt);
 }
 

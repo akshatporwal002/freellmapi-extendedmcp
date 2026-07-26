@@ -4,8 +4,8 @@
 
 - Branch: `codex/intelligent-delegation-dev`
 - Current phase: Phase 4
-- Checkpoint: confidence-bounded performance profiles and controlled exploration
-- Remote status: Phase 3 graph foundations pushed; Phase 4 adaptive checkpoint pending
+- Checkpoint: pre-inference quality floors and confidence-bounded savings
+- Remote status: adaptive evidence pushed; Phase 4 quality/savings checkpoint pending
 
 ## Architecture decisions
 
@@ -66,6 +66,8 @@
   - `server/src/__tests__/routes/mcp.test.ts`
 - Phase 4 adaptive evidence:
   - `server/src/services/delegation-adaptive.ts`
+  - `server/src/services/delegation-quality.ts`
+  - `server/src/services/delegation.ts`
   - `server/src/routes/mcp.ts`
   - `server/src/__tests__/services/delegation-adaptive.test.ts`
   - `server/src/__tests__/routes/mcp.test.ts`
@@ -89,6 +91,7 @@
 | `npm run build` | Phase 2 gate passed for server and client; existing Vite large-chunk warning remains. |
 | Phase 3 graph tests | Deterministic planning/replay, cycle and ownership rejection, dependency serialization, bounded parallelism, verification gates, cancellation, MCP schemas, and routing regressions: 5 files, 62 tests passed. |
 | Phase 4 adaptive evidence tests | Repository/category performance profiles, Wilson 95% intervals, progressive trust, strict shadow-only exploration budgets, decomposition recommendations, capability canary isolation, graph/routing/MCP regressions: 6 files, 67 tests passed. |
+| Phase 4 quality/savings tests | Pre-inference route rejection without provider calls, Wilson-bounded quality policies, Student-t savings intervals, insufficient-evidence behavior, MCP schemas, and delegation regressions: 6 files, 69 tests passed. Server TypeScript build passed. |
 
 The first sandboxed test attempt could not load the Vitest configuration because
 esbuild was denied access above the workspace. Required test/build commands are
@@ -110,16 +113,18 @@ therefore run with the approved unsandboxed execution path.
   `origin/codex/intelligent-delegation-dev`.
 - `305111a feat: add dependency-aware delegation graphs` — pushed to
   `origin/codex/intelligent-delegation-dev`.
-- Phase 4 adaptive evidence checkpoint — pending.
+- `56ac69e feat: add adaptive delegation evidence` — pushed to
+  `origin/codex/intelligent-delegation-dev`.
+- Phase 4 quality/savings checkpoint — pending.
 
 ## Known limitations
 
 - Adaptive scoring uses reviewed acceptance/revision/rejection and regression
   signals. Its bounded score adjustment falls back to task-aware selection
   below five matching reviewed observations.
-- Performance profiles expose uncertainty for usable outcomes, but calibrated
-  premium-token savings still require a direct-implementation estimate and a
-  statistically explicit overhead model.
+- Savings ranges are calibrated from complete historical worker/review usage,
+  but the direct-Codex and current planning-token baselines must be supplied by
+  the caller. Unreported rewrite and verification effort remains explicit.
 - Verification commands are intentionally not accepted or executed in Phase 1;
   deterministic verification remains the caller's responsibility.
 - The Windows filesystem does not expose POSIX permission bits in the form
@@ -130,13 +135,11 @@ therefore run with the approved unsandboxed execution path.
 - Phase 3 persistent/resumable queues and in-flight provider cancellation are
   not implemented; the current graph safely stops new dispatch and bounds each
   provider call by its remaining time.
-- Phase 4 token/complexity calibration, savings ranges, uncertain regression
-  attribution, catalogue-change scheduling, pre-dispatch quality-floor
-  enforcement, and a formal bounded escalation ladder remain to be evaluated
-  as separate production-quality slices.
+- Phase 4 complexity prediction calibration, uncertain regression attribution,
+  catalogue-change scheduling, and a formal bounded escalation ladder remain to
+  be evaluated as separate production-quality slices.
 
 ## Recommended next action
 
-Commit and push adaptive evidence, then add confidence-bounded savings estimates
-and explicit quality-floor evaluation without weakening insufficient-evidence
-fallbacks.
+Commit and push quality/savings policies, then evaluate an explicit bounded
+escalation policy and catalogue-aware evidence filtering.

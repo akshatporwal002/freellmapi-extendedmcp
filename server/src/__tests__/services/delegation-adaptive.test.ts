@@ -2,14 +2,20 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import type { BaseProvider } from '../../providers/base.js';
 import {
+  estimateDelegationSavings,
   evaluateDelegationCounterfactual,
+  evaluateDelegationQualityFloor,
   executeDelegationCapabilityCanary,
   getDelegationPerformanceProfiles,
   recommendDelegationDecomposition,
 } from '../../services/delegation-adaptive.js';
-import type { DelegationDependencies } from '../../services/delegation.js';
+import {
+  executeDelegateTask,
+  type DelegationDependencies,
+} from '../../services/delegation.js';
 import type { RouteResult } from '../../services/router.js';
 import { getDb, initDb } from '../../db/index.js';
+import { runFallbackLoop } from '../../lib/fallback-loop.js';
 
 function seedHistory(
   repositoryHash: string,
@@ -94,6 +100,51 @@ describe('adaptive delegation evidence', () => {
     })).toThrow();
   });
 
+  it('uses confidence bounds for quality floors and savings estimates', () => {
+    const strong = evaluateDelegationQualityFloor({
+      repository_id: 'adaptive-profile-repo',
+      category: 'implementation',
+      provider: 'provider-a',
+      model: 'model-a',
+      policy: {},
+    });
+    expect(strong).toMatchObject({ allowed: true, reason: 'satisfied', samples: 10 });
+
+    const weak = evaluateDelegationQualityFloor({
+      repository_id: 'adaptive-profile-repo',
+      category: 'implementation',
+      provider: 'provider-b',
+      model: 'model-b',
+      policy: {},
+    });
+    expect(weak.allowed).toBe(false);
+    expect(weak.reason).not.toBe('satisfied');
+
+    const savings = estimateDelegationSavings({
+      repository_id: 'adaptive-profile-repo',
+      category: 'implementation',
+      provider: 'provider-a',
+      model: 'model-a',
+      estimated_direct_codex_tokens: 1000,
+      current_planning_tokens: 100,
+    });
+    expect(savings.status).toBe('estimated');
+    expect(savings.estimate?.premium_token_savings_confidence_95).toEqual({
+      mean: 870,
+      low: 870,
+      high: 870,
+    });
+    expect(savings.estimate?.worker_token_usage_confidence_95.mean).toBe(150);
+
+    expect(estimateDelegationSavings({
+      repository_id: 'unknown',
+      category: 'implementation',
+      provider: 'provider-a',
+      model: 'model-a',
+      estimated_direct_codex_tokens: 1000,
+    }).status).toBe('insufficient_evidence');
+  });
+
   it('recommends decomposition without inventing architectural contracts', () => {
     const large = recommendDelegationDecomposition({
       objective: 'Change a broad feature',
@@ -165,5 +216,60 @@ describe('adaptive delegation evidence', () => {
     expect(canary.execution_policy).toBe('shadow_only');
     expect(canary.result.shadow_mode).toBe(true);
     expect(canary.passed).toBe(true);
+  });
+
+  it('skips a route below an explicit quality floor before inference', async () => {
+    let providerCalls = 0;
+    const provider = {
+      chatCompletion: async () => {
+        providerCalls++;
+        return {
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                status: 'completed',
+                candidate: 'Bounded analysis.',
+                confidence: 0.9,
+              }),
+            },
+          }],
+        };
+      },
+    } as unknown as BaseProvider;
+    const routeFor = (platform: string, modelId: string, modelDbId: number): RouteResult => ({
+      provider,
+      modelId,
+      modelDbId,
+      apiKey: 'mock',
+      keyId: modelDbId,
+      platform,
+      displayName: modelId,
+      rpdLimit: null,
+      tpdLimit: null,
+    });
+    const dependencies: DelegationDependencies = {
+      route: (_tokens, _skipKeys, skipModels) =>
+        skipModels?.has(2)
+          ? routeFor('provider-a', 'model-a', 1)
+          : routeFor('provider-b', 'model-b', 2),
+      recordSuccess: () => {},
+      runFallback: runFallbackLoop,
+    };
+    const result = await executeDelegateTask({
+      objective: 'Check bounded analysis',
+      category: 'implementation',
+      size: 'small',
+      risk: 'low',
+      relevant_context: [{ label: 'sample', content: 'const x = 1;' }],
+      acceptance_criteria: ['Return analysis'],
+      output_mode: 'analysis',
+      repository_id: 'adaptive-profile-repo',
+      max_attempts: 2,
+      quality_floor: {},
+    }, dependencies);
+    expect(providerCalls).toBe(1);
+    expect(result.selected_model).toBe('model-a');
+    expect(result.attempts[0].error_class).toBe('quality_floor');
+    expect(result.quality_floor?.allowed).toBe(true);
   });
 });

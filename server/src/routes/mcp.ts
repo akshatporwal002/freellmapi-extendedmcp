@@ -12,7 +12,9 @@ import {
   planDelegationGraph,
 } from '../services/delegation-graph.js';
 import {
+  estimateDelegationSavings,
   evaluateDelegationCounterfactual,
+  evaluateDelegationQualityFloor,
   executeDelegationCapabilityCanary,
   getDelegationPerformanceProfiles,
   recommendDelegationDecomposition,
@@ -298,6 +300,16 @@ const TOOLS: Record<string, McpTool> = {
         shadow_mode: { type: 'boolean', default: false, description: 'Evaluation-only execution; candidate must not be applied.' },
         review_mode: { type: 'string', enum: ['none', 'blind', 'adversarial'], default: 'none' },
         repository_id: { type: 'string', minLength: 1, maxLength: 200, default: 'default', description: 'Stable logical repository identifier; only its SHA-256 hash is persisted.' },
+        quality_floor: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            min_samples: { type: 'integer', minimum: 1, maximum: 1000, default: 5 },
+            min_usable_rate_lower_bound: { type: 'number', minimum: 0, maximum: 1, default: 0.5 },
+            max_regression_rate_upper_bound: { type: 'number', minimum: 0, maximum: 1, default: 0.3 },
+          },
+          description: 'Optional evidence floor checked against each selected route before inference. Under-evidenced models are skipped without provider-health penalties.',
+        },
       },
       required: ['objective', 'category', 'size', 'risk', 'relevant_context', 'acceptance_criteria', 'output_mode'],
     },
@@ -433,6 +445,50 @@ TOOLS.delegation_performance_profiles = {
     },
   },
   run: getDelegationPerformanceProfiles,
+};
+
+TOOLS.evaluate_delegation_quality_floor = {
+  description: 'Evaluate whether one repository/category/model profile satisfies a caller-defined evidence floor using conservative Wilson 95% bounds. The same policy can be attached to delegate_task for pre-inference enforcement.',
+  inputSchema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      repository_id: { type: 'string', minLength: 1, maxLength: 200 },
+      category: { type: 'string', enum: ['implementation', 'bug_fix', 'debugging', 'testing', 'documentation', 'review', 'refactoring', 'research', 'repository_analysis'] },
+      provider: { type: 'string', minLength: 1, maxLength: 100 },
+      model: { type: 'string', minLength: 1, maxLength: 300 },
+      policy: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          min_samples: { type: 'integer', minimum: 1, maximum: 1000, default: 5 },
+          min_usable_rate_lower_bound: { type: 'number', minimum: 0, maximum: 1, default: 0.5 },
+          max_regression_rate_upper_bound: { type: 'number', minimum: 0, maximum: 1, default: 0.3 },
+        },
+      },
+    },
+    required: ['repository_id', 'category', 'provider', 'model', 'policy'],
+  },
+  run: evaluateDelegationQualityFloor,
+};
+
+TOOLS.estimate_delegation_savings = {
+  description: 'Estimate premium-token savings, worker-token usage, and Codex review effort as Student-t 95% mean intervals from matching reviewed executions with complete token evidence.',
+  inputSchema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      repository_id: { type: 'string', minLength: 1, maxLength: 200 },
+      category: { type: 'string', enum: ['implementation', 'bug_fix', 'debugging', 'testing', 'documentation', 'review', 'refactoring', 'research', 'repository_analysis'] },
+      provider: { type: 'string', minLength: 1, maxLength: 100 },
+      model: { type: 'string', minLength: 1, maxLength: 300 },
+      estimated_direct_codex_tokens: { type: 'integer', minimum: 1, maximum: 10000000 },
+      current_planning_tokens: { type: 'integer', minimum: 0, maximum: 10000000, default: 0 },
+      min_samples: { type: 'integer', minimum: 2, maximum: 1000, default: 5 },
+    },
+    required: ['repository_id', 'category', 'provider', 'model', 'estimated_direct_codex_tokens'],
+  },
+  run: estimateDelegationSavings,
 };
 
 TOOLS.evaluate_delegation_counterfactual = {
