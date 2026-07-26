@@ -144,7 +144,19 @@ and validation warnings. The preference is evidence only; Codex still decides.
 - The shared router and fallback loop own route selection, leases, cooldowns,
   retry classification, and failover.
 - Patch paths are compared with `permitted_files`; violations are returned as
-  validation warnings.
+  validation warnings and a rejected quality gate.
+- Patch assessments report file count, additions, deletions, changed paths,
+  scope violations, risk score/level, and concrete risk signals. Configuration,
+  migrations, security-sensitive paths, public exports, broad patches, and test
+  deletion raise risk deterministically.
+- `quality_gate` is `pass`, `review_required`, or `rejected`. Scope violations,
+  test/assertion deletion, and very large patches are rejected while preserving
+  the candidate as evidence.
+- `shadow_mode: true` marks output evaluation-only and adds a warning that the
+  candidate must not be applied.
+- `review_mode` may be `blind` or `adversarial`; adversarial review explicitly
+  searches for counterexamples, races, security failures, and tests that could
+  pass despite incorrect behavior.
 - Workers cannot run verification commands. Codex must inspect and apply a
   candidate, then run deterministic checks in the repository.
 - `codex_review_required` is always `true`.

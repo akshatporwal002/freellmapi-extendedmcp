@@ -4,8 +4,8 @@
 
 - Branch: `codex/intelligent-delegation-dev`
 - Current phase: Phase 2
-- Checkpoint: specialized presets and independent two-model comparison
-- Remote status: planning, Phase 1, and task-aware checkpoints pushed; preset checkpoint pending
+- Checkpoint: deterministic patch risk, quality floors, shadow mode, and review policies
+- Remote status: presets pushed; quality-policy checkpoint pending
 
 ## Architecture decisions
 
@@ -45,6 +45,11 @@
   - `server/src/services/delegation.ts`
   - `server/src/__tests__/routes/mcp.test.ts`
   - `server/src/__tests__/services/delegation.test.ts`
+- Phase 2 quality policies:
+  - `server/src/services/delegation.ts`
+  - `server/src/routes/mcp.ts`
+  - `server/src/__tests__/services/delegation.test.ts`
+  - `server/src/__tests__/routes/mcp.test.ts`
 
 ## Verification log
 
@@ -58,6 +63,7 @@
 | `npm run build` | Phase 1 gate passed for server and client; existing Vite large-chunk warning remains. |
 | Targeted Phase 2 routing tests | Task-aware, adaptive fallback, standard compatibility, existing router, MCP, and delegation tests: 4 files, 43 tests passed after tuning high-risk capability weighting. |
 | Targeted preset/comparison tests | Specialized presets, two-model diversity, and MCP schemas: 2 files, 31 tests passed. |
+| Targeted quality-policy tests | Patch risk/scope, test-deletion rejection, shadow isolation, adversarial review, selection compatibility, and MCP schemas: 4 files, 50 tests passed. |
 
 The first sandboxed test attempt could not load the Vitest configuration because
 esbuild was denied access above the workspace. Required test/build commands are
@@ -71,7 +77,9 @@ therefore run with the approved unsandboxed execution path.
   `origin/codex/intelligent-delegation-dev`.
 - `26b30b3 feat: add task-aware model selection mode` — pushed to
   `origin/codex/intelligent-delegation-dev`.
-- Specialized preset/comparison checkpoint — pending.
+- `03cd864 feat: add specialized delegation presets` — pushed to
+  `origin/codex/intelligent-delegation-dev`.
+- Quality-policy checkpoint — pending.
 
 ## Known limitations
 
@@ -92,5 +100,5 @@ therefore run with the approved unsandboxed execution path.
 
 ## Recommended next action
 
-Commit and push the specialized tools, then add deterministic patch risk,
-quality-floor, shadow/review, and feedback contracts.
+Commit and push quality policies, then add feedback/telemetry contracts and
+history-backed adaptive foundations.

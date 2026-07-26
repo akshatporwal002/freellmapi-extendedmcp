@@ -284,6 +284,8 @@ const TOOLS: Record<string, McpTool> = {
         output_token_limit: { type: 'integer', minimum: 64, maximum: 16384, default: 4096 },
         max_attempts: { type: 'integer', minimum: 1, maximum: 5, default: 2 },
         time_limit_ms: { type: 'integer', minimum: 1000, maximum: 120000, default: 45000 },
+        shadow_mode: { type: 'boolean', default: false, description: 'Evaluation-only execution; candidate must not be applied.' },
+        review_mode: { type: 'string', enum: ['none', 'blind', 'adversarial'], default: 'none' },
       },
       required: ['objective', 'category', 'size', 'risk', 'relevant_context', 'acceptance_criteria', 'output_mode'],
     },

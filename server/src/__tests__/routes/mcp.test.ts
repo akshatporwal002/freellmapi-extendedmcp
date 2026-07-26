@@ -153,6 +153,8 @@ describe('MCP server (/mcp, stateless Streamable HTTP)', () => {
     const tool = body.result.tools.find((item: any) => item.name === 'compare_model_outputs');
     expect(tool.inputSchema.properties.candidate_count.enum).toEqual([2]);
     expect(tool.inputSchema.properties.selection_mode.enum).toEqual(['standard', 'task_aware', 'adaptive']);
+    expect(tool.inputSchema.properties.review_mode.enum).toEqual(['none', 'blind', 'adversarial']);
+    expect(tool.inputSchema.properties.shadow_mode.default).toBe(false);
   });
 
   it('specialized delegation tools expose schemas without caller-overridable category or output mode', async () => {

@@ -76,6 +76,8 @@ export const delegateTaskSchema = z.object({
   output_token_limit: z.number().int().min(64).max(16_384).default(4_096),
   max_attempts: z.number().int().min(1).max(5).default(2),
   time_limit_ms: z.number().int().min(1_000).max(120_000).default(45_000),
+  shadow_mode: z.boolean().default(false),
+  review_mode: z.enum(['none', 'blind', 'adversarial']).default('none'),
 }).strict();
 
 export type DelegateTaskInput = z.infer<typeof delegateTaskSchema>;
@@ -141,6 +143,10 @@ export interface DelegateTaskResult {
   } | null;
   attempts: DelegationAttemptSummary[];
   validation_warnings: string[];
+  shadow_mode: boolean;
+  review_mode: 'none' | 'blind' | 'adversarial';
+  quality_gate: 'pass' | 'review_required' | 'rejected';
+  patch_assessment: PatchAssessment | null;
   codex_review_required: true;
   versions: {
     schema: string;
@@ -150,6 +156,17 @@ export interface DelegateTaskResult {
   context_receipt: {
     entries: Array<{ path?: string; label?: string; sha256: string; redactions: number }>;
   };
+}
+
+export interface PatchAssessment {
+  files_changed: number;
+  additions: number;
+  deletions: number;
+  changed_paths: string[];
+  scope_violations: string[];
+  risk_score: number;
+  risk_level: 'low' | 'medium' | 'high';
+  signals: string[];
 }
 
 interface WorkerEnvelope {
@@ -250,6 +267,12 @@ function buildWorkerMessages(input: DelegateTaskInput): { messages: ChatMessage[
     'Return exactly one JSON object with: status, candidate, confidence, reason, missing, warnings.',
     'status must be completed, abstained, or insufficient_context. candidate must be a unified diff for patch mode or concise findings for analysis mode.',
     'If required context is missing or the requested boundary cannot be respected, abstain instead of guessing.',
+    input.review_mode === 'blind'
+      ? 'Perform a blind independent review using only the stated contract and supplied candidate; do not infer or rely on an implementer rationale.'
+      : '',
+    input.review_mode === 'adversarial'
+      ? 'Actively search for counterexamples, unstated assumptions, security failures, race conditions, boundary errors, and behavior that could pass current tests while remaining wrong.'
+      : '',
     `Delegation schema=${DELEGATION_SCHEMA_VERSION}; prompt=${DELEGATION_PROMPT_VERSION}; policy=${DELEGATION_POLICY_VERSION}.`,
   ].join('\n');
 
@@ -264,6 +287,8 @@ function buildWorkerMessages(input: DelegateTaskInput): { messages: ChatMessage[
     invariants: input.invariants,
     acceptance_criteria: input.acceptance_criteria,
     output_mode: input.output_mode,
+    shadow_mode: input.shadow_mode,
+    review_mode: input.review_mode,
     relevant_context: redactedContext,
   };
   const user = `TASK_PACKET_JSON\n${JSON.stringify(packet)}`;
@@ -294,7 +319,50 @@ function parseWorkerEnvelope(text: string): { envelope: WorkerEnvelope; warning?
   };
 }
 
-function validateCandidate(input: DelegateTaskInput, envelope: WorkerEnvelope): string[] {
+export function assessPatchCandidate(input: DelegateTaskInput, candidate: string): PatchAssessment | null {
+  if (input.output_mode !== 'patch' || !candidate.trim()) return null;
+  const pathMatches = [...candidate.matchAll(/^diff --git a\/(.+?) b\/(.+?)$/gm)];
+  const changedPaths = [...new Set(pathMatches.flatMap(match => [match[1], match[2]]))];
+  const lines = candidate.split(/\r?\n/);
+  const additions = lines.filter(line => line.startsWith('+') && !line.startsWith('+++')).length;
+  const deletions = lines.filter(line => line.startsWith('-') && !line.startsWith('---')).length;
+  const permitted = new Set(input.permitted_files.map(path => path.replaceAll('\\', '/')));
+  const scopeViolations = changedPaths.filter(path => permitted.size === 0 || !permitted.has(path));
+  const signals: string[] = [];
+  let score = input.risk === 'high' ? 35 : input.risk === 'medium' ? 20 : 5;
+  if (scopeViolations.length > 0) { score += 60; signals.push('path outside permitted scope'); }
+  if (changedPaths.length > 5) { score += 10; signals.push('broad file count'); }
+  if (additions + deletions > 500) { score += 20; signals.push('large patch'); }
+  if (additions + deletions > 1_000) { score += 15; signals.push('very large patch'); }
+  if (changedPaths.some(path => /(^|\/)(package(?:-lock)?\.json|tsconfig|docker|\.github)/i.test(path))) {
+    score += 15; signals.push('dependency, build, or deployment configuration');
+  }
+  if (changedPaths.some(path => /migration|schema|database|\/db\//i.test(path))) {
+    score += 20; signals.push('database or migration change');
+  }
+  if (changedPaths.some(path => /auth|crypto|secret|permission|security/i.test(path))) {
+    score += 25; signals.push('security-sensitive path');
+  }
+  if (lines.some(line => /^-\s*(?:it|test|expect|assert)\b/.test(line))) {
+    score += 25; signals.push('test or assertion deletion');
+  }
+  if (lines.some(line => /^\+\s*export\s/.test(line))) {
+    score += 10; signals.push('public export addition');
+  }
+  score = Math.min(100, score);
+  return {
+    files_changed: changedPaths.length,
+    additions,
+    deletions,
+    changed_paths: changedPaths,
+    scope_violations: [...new Set(scopeViolations)],
+    risk_score: score,
+    risk_level: score >= 60 ? 'high' : score >= 25 ? 'medium' : 'low',
+    signals,
+  };
+}
+
+function validateCandidate(input: DelegateTaskInput, envelope: WorkerEnvelope, assessment: PatchAssessment | null): string[] {
   const warnings = Array.isArray(envelope.warnings)
     ? envelope.warnings.filter((item): item is string => typeof item === 'string').slice(0, 20)
     : [];
@@ -305,13 +373,30 @@ function validateCandidate(input: DelegateTaskInput, envelope: WorkerEnvelope): 
   if (candidate.length > input.output_token_limit * 6) {
     warnings.push('candidate may exceed the requested output token limit');
   }
-  if (input.output_mode === 'patch') {
-    const changedPaths = [...candidate.matchAll(/^diff --git a\/(.+?) b\/(.+?)$/gm)].flatMap(match => [match[1], match[2]]);
-    const permitted = new Set(input.permitted_files.map(path => path.replaceAll('\\', '/')));
-    const outside = [...new Set(changedPaths.filter(path => permitted.size === 0 || !permitted.has(path)))];
-    if (outside.length > 0) warnings.push(`candidate touches paths outside the permitted scope: ${outside.slice(0, 10).join(', ')}`);
+  if (assessment?.scope_violations.length) {
+    warnings.push(`candidate touches paths outside the permitted scope: ${assessment.scope_violations.slice(0, 10).join(', ')}`);
   }
+  if (assessment && assessment.additions + assessment.deletions > 500) {
+    warnings.push('candidate patch is larger than the minimization threshold');
+  }
+  if (assessment?.signals.includes('test or assertion deletion')) {
+    warnings.push('candidate deletes a test or assertion');
+  }
+  if (input.shadow_mode) warnings.push('shadow-mode candidate is evaluation-only and must not be applied');
   return warnings;
+}
+
+function qualityGate(
+  assessment: PatchAssessment | null,
+  warnings: string[],
+): DelegateTaskResult['quality_gate'] {
+  if (
+    assessment?.scope_violations.length ||
+    assessment?.signals.includes('test or assertion deletion') ||
+    (assessment && assessment.additions + assessment.deletions > 1_000)
+  ) return 'rejected';
+  if ((assessment?.risk_score ?? 0) >= 25 || warnings.length > 0) return 'review_required';
+  return 'pass';
 }
 
 function baseResult(input: DelegateTaskInput): Pick<
@@ -353,6 +438,10 @@ export async function executeDelegateTask(
       usage: { input_tokens: built.estimatedInputTokens, output_tokens: 0, estimated: true },
       attempts: [],
       validation_warnings: built.warnings,
+      shadow_mode: input.shadow_mode,
+      review_mode: input.review_mode,
+      quality_gate: 'review_required',
+      patch_assessment: null,
     };
   }
 
@@ -400,16 +489,18 @@ export async function executeDelegateTask(
       const confidence = typeof envelope.confidence === 'number'
         ? Math.max(0, Math.min(1, envelope.confidence))
         : null;
+      const candidate = status === 'completed' && typeof envelope.candidate === 'string' ? envelope.candidate : null;
+      const assessment = candidate ? assessPatchCandidate(input, candidate) : null;
       const validationWarnings = [
         ...built.warnings,
         ...(parsed.warning ? [parsed.warning] : []),
-        ...validateCandidate(input, envelope),
+        ...validateCandidate(input, envelope, assessment),
       ];
       attempts.push({ ordinal, platform: route.platform, model: route.modelId, outcome: 'success' });
       terminal = {
         ...baseResult(input),
         status,
-        candidate: status === 'completed' && typeof envelope.candidate === 'string' ? envelope.candidate : null,
+        candidate,
         confidence,
         abstention: status === 'completed'
           ? null
@@ -428,6 +519,10 @@ export async function executeDelegateTask(
         },
         attempts,
         validation_warnings: validationWarnings,
+        shadow_mode: input.shadow_mode,
+        review_mode: input.review_mode,
+        quality_gate: qualityGate(assessment, validationWarnings),
+        patch_assessment: assessment,
       };
       return 'done';
     },
@@ -463,6 +558,10 @@ export async function executeDelegateTask(
     usage: null,
     attempts,
     validation_warnings: terminalFailure?.warnings ?? built.warnings,
+    shadow_mode: input.shadow_mode,
+    review_mode: input.review_mode,
+    quality_gate: 'review_required',
+    patch_assessment: null,
   };
 }
 

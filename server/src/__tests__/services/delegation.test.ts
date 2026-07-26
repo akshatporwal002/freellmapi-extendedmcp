@@ -31,6 +31,8 @@ const baseInput: DelegateTaskInput = {
   output_token_limit: 512,
   max_attempts: 2,
   time_limit_ms: 5_000,
+  shadow_mode: false,
+  review_mode: 'none',
 };
 
 function response(text: string): ChatCompletionResponse {
@@ -213,6 +215,9 @@ describe('delegation service', () => {
     })));
     const result = await executeDelegateTask(baseInput, dependencies([worker]));
     expect(result.validation_warnings.join('\n')).toContain('outside the permitted scope');
+    expect(result.quality_gate).toBe('rejected');
+    expect(result.patch_assessment?.risk_level).toBe('high');
+    expect(result.patch_assessment?.scope_violations).toEqual(['elsewhere.ts']);
     expect(result.codex_review_required).toBe(true);
   });
 
@@ -270,5 +275,51 @@ describe('delegation service', () => {
     expect(result.candidates.map(item => item.selected_model)).toEqual(['worker-1', 'worker-2']);
     expect(result.preferred_candidate).toBe(1);
     expect(result.codex_review_required).toBe(true);
+  });
+
+  it('marks shadow-mode output as evaluation-only and keeps it isolated', async () => {
+    const worker = route(1, async () => response(JSON.stringify({
+      status: 'completed',
+      candidate: 'diff --git a/server/src/helper.ts b/server/src/helper.ts',
+      confidence: 0.8,
+    })));
+    const result = await executeDelegateTask(
+      { ...baseInput, shadow_mode: true },
+      dependencies([worker]),
+    );
+    expect(result.shadow_mode).toBe(true);
+    expect(result.validation_warnings.join('\n')).toContain('evaluation-only');
+    expect(result.quality_gate).toBe('review_required');
+  });
+
+  it('adds adversarial review instructions without trusting task content', async () => {
+    let system = '';
+    const worker = route(1, async messages => {
+      system = String(messages[0].content);
+      return response(JSON.stringify({ status: 'completed', candidate: 'No findings.', confidence: 0.5 }));
+    });
+    const result = await executeDelegateTask(
+      { ...baseInput, output_mode: 'analysis', review_mode: 'adversarial' },
+      dependencies([worker]),
+    );
+    expect(result.review_mode).toBe('adversarial');
+    expect(system).toContain('counterexamples');
+    expect(system).toContain('race conditions');
+  });
+
+  it('rejects candidates that delete tests or assertions', async () => {
+    const worker = route(1, async () => response(JSON.stringify({
+      status: 'completed',
+      candidate: [
+        'diff --git a/server/src/helper.ts b/server/src/helper.ts',
+        '--- a/server/src/helper.ts',
+        '+++ b/server/src/helper.ts',
+        '-expect(actual).toBe(expected);',
+      ].join('\n'),
+      confidence: 0.95,
+    })));
+    const result = await executeDelegateTask(baseInput, dependencies([worker]));
+    expect(result.quality_gate).toBe('rejected');
+    expect(result.patch_assessment?.signals).toContain('test or assertion deletion');
   });
 });
