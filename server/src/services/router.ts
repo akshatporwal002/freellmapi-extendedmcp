@@ -149,6 +149,8 @@ export interface TaskSelectionContext {
   risk: 'low' | 'medium' | 'high';
   estimatedTokens: number;
   requiresTools?: boolean;
+  repositoryHash?: string;
+  adaptiveScores?: Record<string, { samples: number; score: number }>;
 }
 
 const TASK_SIZE_TARGET: Record<TaskSelectionContext['size'], number> = {
@@ -201,15 +203,79 @@ export function rankChainForSelection(
         : selection.risk === 'medium'
           ? { standard: 0.5, capability: 0.3, context: 0.12, tools: 0.08 }
           : { standard: 0.7, capability: 0.15, context: 0.1, tools: 0.05 };
+      const adaptive = selection.mode === 'adaptive'
+        ? selection.adaptiveScores?.[`${entry.platform}/${entry.model_id}`]?.score ?? 0
+        : 0;
       const taskScore =
         weights.standard * standard +
         weights.capability * capability +
         weights.context * context +
-        weights.tools * toolCapability;
+        weights.tools * toolCapability +
+        adaptive;
       return { entry, index, taskScore };
     })
     .sort((a, b) => b.taskScore - a.taskScore || a.index - b.index)
     .map(item => item.entry);
+}
+
+function adaptiveScoresFor(
+  db: Db,
+  selection: TaskSelectionContext,
+): Record<string, { samples: number; score: number }> | undefined {
+  if (selection.mode !== 'adaptive' || !selection.repositoryHash) return undefined;
+  const rows = db.prepare(`
+    SELECT provider, model_id, COUNT(*) AS samples,
+           AVG(CASE outcome
+             WHEN 'accepted' THEN 1.0
+             WHEN 'revised' THEN 0.6
+             WHEN 'rejected' THEN 0.0
+           END) AS acceptance_quality,
+           AVG(CASE WHEN regression = 1 THEN 1.0 ELSE 0.0 END) AS regression_rate
+      FROM delegation_history
+     WHERE repository_hash = ?
+       AND category = ?
+       AND outcome IS NOT NULL
+       AND shadow_mode = 0
+       AND provider IS NOT NULL
+       AND model_id IS NOT NULL
+     GROUP BY provider, model_id
+    HAVING COUNT(*) >= 5
+  `).all(selection.repositoryHash, selection.category) as Array<{
+    provider: string;
+    model_id: string;
+    samples: number;
+    acceptance_quality: number;
+    regression_rate: number;
+  }>;
+  if (rows.length === 0) return undefined;
+  return Object.fromEntries(rows.map(row => {
+    // Bounded evidence adjustment: quality above/below the neutral 0.5 point,
+    // with an explicit observed-regression penalty. No history means no score.
+    const score = Math.max(-0.2, Math.min(0.2,
+      (row.acceptance_quality - 0.5) * 0.25 - row.regression_rate * 0.2,
+    ));
+    return [`${row.provider}/${row.model_id}`, { samples: row.samples, score }];
+  }));
+}
+
+export function hasAdaptiveSelectionEvidence(
+  repositoryHash: string,
+  category: TaskSelectionContext['category'],
+): boolean {
+  const row = getDb().prepare(`
+    SELECT 1
+      FROM delegation_history
+     WHERE repository_hash = ?
+       AND category = ?
+       AND outcome IS NOT NULL
+       AND shadow_mode = 0
+       AND provider IS NOT NULL
+       AND model_id IS NOT NULL
+     GROUP BY provider, model_id
+    HAVING COUNT(*) >= 5
+     LIMIT 1
+  `).get(repositoryHash, category);
+  return Boolean(row);
 }
 
 export interface RouteResult {
@@ -1121,7 +1187,10 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
 
   const chain = (prefetchedChain ?? getActiveChain(db)).filter(e => e.enabled);
 
-  const sortedChain = rankChainForSelection(orderChain(chain, strategy), selection);
+  const effectiveSelection = selection?.mode === 'adaptive'
+    ? { ...selection, adaptiveScores: adaptiveScoresFor(db, selection) }
+    : selection;
+  const sortedChain = rankChainForSelection(orderChain(chain, strategy), effectiveSelection);
 
   // Sticky session / Explicit pinning: move preferred model to front of chain
   if (preferredModelDbId) {

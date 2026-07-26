@@ -19,6 +19,7 @@ const MODEL_SOURCE_PROVENANCE_FILENAME = '20260726_000003_model_source_provenanc
 const MEDIA_MODEL_META_FILENAME = '20260726_000004_media_model_meta.ts';
 const REQUEST_SERVED_MODEL_FILENAME = '20260726_000005_request_served_model.ts';
 const ATTEMPT_ERROR_SUMMARY_FILENAME = '20260726_000006_attempt_error_summary.ts';
+const DELEGATION_HISTORY_FILENAME = '20260727_000001_delegation_history.ts';
 
 interface SchemaRow {
   type: string;
@@ -84,6 +85,7 @@ describe('migration round trip', () => {
         MEDIA_MODEL_META_FILENAME,
         REQUEST_SERVED_MODEL_FILENAME,
         ATTEMPT_ERROR_SUMMARY_FILENAME,
+        DELEGATION_HISTORY_FILENAME,
       ]);
     } finally {
       db.close();
@@ -105,7 +107,6 @@ describe('migration round trip', () => {
         INSERT INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, supports_tools, supports_vision, enabled, source)
         VALUES ('custom', 'roundtrip-custom', 'Roundtrip Custom', 50, 50, 1, 0, 1, 'user')
       `).run();
-
       const fullState = snapshotAppState(db);
       await runDownToBaseline(db);
 

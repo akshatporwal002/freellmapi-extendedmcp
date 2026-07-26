@@ -11,6 +11,7 @@ import {
   executeDelegateTask,
   executeCompareModelOutputs,
   executeDelegationPreset,
+  recordDelegationFeedback,
   type DelegationPreset,
 } from '../services/delegation.js';
 
@@ -286,6 +287,7 @@ const TOOLS: Record<string, McpTool> = {
         time_limit_ms: { type: 'integer', minimum: 1000, maximum: 120000, default: 45000 },
         shadow_mode: { type: 'boolean', default: false, description: 'Evaluation-only execution; candidate must not be applied.' },
         review_mode: { type: 'string', enum: ['none', 'blind', 'adversarial'], default: 'none' },
+        repository_id: { type: 'string', minLength: 1, maxLength: 200, default: 'default', description: 'Stable logical repository identifier; only its SHA-256 hash is persisted.' },
       },
       required: ['objective', 'category', 'size', 'risk', 'relevant_context', 'acceptance_criteria', 'output_mode'],
     },
@@ -349,6 +351,23 @@ TOOLS.compare_model_outputs = {
     },
   },
   run: executeCompareModelOutputs,
+};
+
+TOOLS.record_delegation_feedback = {
+  description: 'Record Codex acceptance, revision, rejection, edit-distance, regression, and review-token feedback for a completed delegation task. Stores compact signals only, never source context or patches.',
+  inputSchema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      task_id: { type: 'string', format: 'uuid' },
+      outcome: { type: 'string', enum: ['accepted', 'revised', 'rejected'] },
+      edit_distance: { type: 'integer', minimum: 0, maximum: 10000000 },
+      regression: { type: 'boolean' },
+      review_tokens: { type: 'integer', minimum: 0, maximum: 10000000 },
+    },
+    required: ['task_id', 'outcome'],
+  },
+  run: recordDelegationFeedback,
 };
 
 // ── JSON-RPC dispatch ────────────────────────────────────────────────────

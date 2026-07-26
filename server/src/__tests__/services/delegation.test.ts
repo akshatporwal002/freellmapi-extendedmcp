@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import type { ChatMessage, ChatCompletionResponse } from '@freellmapi/shared/types.js';
 import type { BaseProvider } from '../../providers/base.js';
 import type { RouteResult } from '../../services/router.js';
@@ -7,11 +8,12 @@ import {
   executeDelegateTask,
   executeDelegationPreset,
   executeCompareModelOutputs,
+  recordDelegationFeedback,
   redactDelegationText,
   type DelegateTaskInput,
   type DelegationDependencies,
 } from '../../services/delegation.js';
-import { initDb } from '../../db/index.js';
+import { getDb, initDb } from '../../db/index.js';
 import { runFallbackLoop } from '../../lib/fallback-loop.js';
 
 const baseInput: DelegateTaskInput = {
@@ -33,6 +35,7 @@ const baseInput: DelegateTaskInput = {
   time_limit_ms: 5_000,
   shadow_mode: false,
   review_mode: 'none',
+  repository_id: 'delegation-test-repository',
 };
 
 function response(text: string): ChatCompletionResponse {
@@ -168,6 +171,35 @@ describe('delegation service', () => {
     );
     expect(result.selection_mode).toBe('adaptive');
     expect(result.selection_mode_fallback).toBe('task_aware');
+  });
+
+  it('stops reporting adaptive fallback after sufficient verified history exists', async () => {
+    const repositoryId = 'adaptive-evidence-repository';
+    const repositoryHash = createHash('sha256').update(repositoryId).digest('hex');
+    const insert = getDb().prepare(`
+      INSERT INTO delegation_history (
+        task_id, repository_hash, category, size, risk, selection_mode,
+        model_id, provider, status, quality_gate, latency_ms,
+        context_receipt_hash, schema_version, prompt_version, policy_version,
+        outcome, regression
+      ) VALUES (?, ?, 'implementation', 'small', 'low', 'task_aware',
+        'worker-1', 'groq', 'completed', 'pass', 1,
+        'receipt', '1', '1', '1', 'accepted', 0)
+    `);
+    for (let i = 0; i < 5; i++) insert.run(`history-${i}`, repositoryHash);
+
+    const worker = route(1, async () => response(JSON.stringify({
+      status: 'completed',
+      candidate: 'diff --git a/server/src/helper.ts b/server/src/helper.ts',
+      confidence: 0.8,
+    })));
+    const result = await executeDelegateTask({
+      ...baseInput,
+      repository_id: repositoryId,
+      selection_mode: 'adaptive',
+    }, dependencies([worker]));
+    expect(result.selection_mode).toBe('adaptive');
+    expect(result.selection_mode_fallback).toBeUndefined();
   });
 
   it('uses the shared fallback loop and preserves a bounded attempt summary', async () => {
@@ -321,5 +353,53 @@ describe('delegation service', () => {
     const result = await executeDelegateTask(baseInput, dependencies([worker]));
     expect(result.quality_gate).toBe('rejected');
     expect(result.patch_assessment?.signals).toContain('test or assertion deletion');
+  });
+
+  it('persists privacy-safe telemetry and records explicit Codex feedback', async () => {
+    const secretObjective = `Implement helper with token gsk_${'x'.repeat(32)}`;
+    const worker = route(1, async () => response(JSON.stringify({
+      status: 'completed',
+      candidate: 'diff --git a/server/src/helper.ts b/server/src/helper.ts',
+      confidence: 0.9,
+    })));
+    const result = await executeDelegateTask(
+      { ...baseInput, objective: secretObjective },
+      dependencies([worker]),
+    );
+    expect(result.task_id).toMatch(/^[0-9a-f-]{36}$/);
+
+    const row = getDb().prepare('SELECT * FROM delegation_history WHERE task_id = ?')
+      .get(result.task_id) as Record<string, unknown>;
+    expect(row.repository_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(row.context_receipt_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(row)).not.toContain('delegation-test-repository');
+    expect(JSON.stringify(row)).not.toContain('gsk_');
+    expect(JSON.stringify(row)).not.toContain('export function');
+
+    expect(recordDelegationFeedback({
+      task_id: result.task_id,
+      outcome: 'revised',
+      edit_distance: 4,
+      regression: false,
+      review_tokens: 120,
+    })).toEqual({ task_id: result.task_id, outcome: 'revised', recorded: true });
+    const feedback = getDb().prepare(`
+      SELECT outcome, edit_distance, regression, review_tokens, feedback_at
+      FROM delegation_history WHERE task_id = ?
+    `).get(result.task_id) as Record<string, unknown>;
+    expect(feedback).toMatchObject({
+      outcome: 'revised',
+      edit_distance: 4,
+      regression: 0,
+      review_tokens: 120,
+    });
+    expect(feedback.feedback_at).toBeTruthy();
+  });
+
+  it('rejects feedback for unknown task ids', () => {
+    expect(() => recordDelegationFeedback({
+      task_id: '00000000-0000-4000-8000-000000000000',
+      outcome: 'accepted',
+    })).toThrow('Unknown delegation task_id');
   });
 });

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { ChatMessage } from '@freellmapi/shared/types.js';
 import {
@@ -12,9 +12,11 @@ import { contentToString } from '../lib/content.js';
 import {
   routeRequest,
   routingReserveTokens,
+  hasAdaptiveSelectionEvidence,
   type ModelSelectionMode,
   type RouteResult,
 } from './router.js';
+import { getDb } from '../db/index.js';
 
 export const DELEGATION_SCHEMA_VERSION = '1.0';
 export const DELEGATION_PROMPT_VERSION = '1.0';
@@ -78,6 +80,7 @@ export const delegateTaskSchema = z.object({
   time_limit_ms: z.number().int().min(1_000).max(120_000).default(45_000),
   shadow_mode: z.boolean().default(false),
   review_mode: z.enum(['none', 'blind', 'adversarial']).default('none'),
+  repository_id: z.string().min(1).max(200).default('default'),
 }).strict();
 
 export type DelegateTaskInput = z.infer<typeof delegateTaskSchema>;
@@ -127,6 +130,7 @@ export interface DelegationAttemptSummary {
 }
 
 export interface DelegateTaskResult {
+  task_id: string;
   status: 'completed' | 'abstained' | 'failed' | 'insufficient_context';
   output_mode: 'patch' | 'analysis';
   candidate: string | null;
@@ -157,6 +161,16 @@ export interface DelegateTaskResult {
     entries: Array<{ path?: string; label?: string; sha256: string; redactions: number }>;
   };
 }
+
+export const delegationFeedbackSchema = z.object({
+  task_id: z.string().uuid(),
+  outcome: z.enum(['accepted', 'revised', 'rejected']),
+  edit_distance: z.number().int().min(0).max(10_000_000).optional(),
+  regression: z.boolean().optional(),
+  review_tokens: z.number().int().min(0).max(10_000_000).optional(),
+}).strict();
+
+export type DelegationFeedbackInput = z.infer<typeof delegationFeedbackSchema>;
 
 export interface PatchAssessment {
   files_changed: number;
@@ -207,6 +221,7 @@ const defaultDependencies: DelegationDependencies = {
         size: task.size,
         risk: task.risk,
         estimatedTokens,
+        repositoryHash: sha256(task.repository_id),
       } : undefined,
     ),
   runFallback: runFallbackLoop,
@@ -401,12 +416,16 @@ function qualityGate(
 
 function baseResult(input: DelegateTaskInput): Pick<
   DelegateTaskResult,
-  'output_mode' | 'selection_mode' | 'codex_review_required' | 'versions' | 'context_receipt'
+  'task_id' | 'output_mode' | 'selection_mode' | 'codex_review_required' | 'versions' | 'context_receipt'
 > {
+  const repositoryHash = sha256(input.repository_id);
+  const adaptiveFallback = input.selection_mode === 'adaptive' &&
+    !hasAdaptiveSelectionEvidence(repositoryHash, input.category);
   return {
+    task_id: randomUUID(),
     output_mode: input.output_mode,
     selection_mode: input.selection_mode,
-    ...(input.selection_mode === 'adaptive' ? { selection_mode_fallback: 'task_aware' as const } : {}),
+    ...(adaptiveFallback ? { selection_mode_fallback: 'task_aware' as const } : {}),
     codex_review_required: true,
     versions: {
       schema: DELEGATION_SCHEMA_VERSION,
@@ -417,14 +436,81 @@ function baseResult(input: DelegateTaskInput): Pick<
   };
 }
 
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function persistDelegationResult(
+  input: DelegateTaskInput,
+  result: DelegateTaskResult,
+  latencyMs: number,
+): DelegateTaskResult {
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO delegation_history (
+      task_id, repository_hash, category, size, risk, selection_mode,
+      selection_mode_fallback, model_id, provider, status, quality_gate,
+      prompt_tokens, output_tokens, latency_ms, shadow_mode,
+      context_receipt_hash, schema_version, prompt_version, policy_version
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    result.task_id,
+    sha256(input.repository_id),
+    input.category,
+    input.size,
+    input.risk,
+    input.selection_mode,
+    result.selection_mode_fallback ?? null,
+    result.selected_model,
+    result.selected_provider,
+    result.status,
+    result.quality_gate,
+    result.usage?.input_tokens ?? null,
+    result.usage?.output_tokens ?? null,
+    latencyMs,
+    result.shadow_mode ? 1 : 0,
+    sha256(JSON.stringify(result.context_receipt.entries)),
+    result.versions.schema,
+    result.versions.prompt,
+    result.versions.policy,
+  );
+  return result;
+}
+
+export function recordDelegationFeedback(rawInput: unknown): {
+  task_id: string;
+  outcome: DelegationFeedbackInput['outcome'];
+  recorded: true;
+} {
+  const input = delegationFeedbackSchema.parse(rawInput);
+  const result = getDb().prepare(`
+    UPDATE delegation_history
+       SET outcome = ?,
+           edit_distance = ?,
+           regression = ?,
+           review_tokens = ?,
+           feedback_at = datetime('now')
+     WHERE task_id = ?
+  `).run(
+    input.outcome,
+    input.edit_distance ?? null,
+    input.regression === undefined ? null : input.regression ? 1 : 0,
+    input.review_tokens ?? null,
+    input.task_id,
+  );
+  if (result.changes !== 1) throw new Error(`Unknown delegation task_id: ${input.task_id}`);
+  return { task_id: input.task_id, outcome: input.outcome, recorded: true };
+}
+
 export async function executeDelegateTask(
   rawInput: unknown,
   dependencies: DelegationDependencies = defaultDependencies,
 ): Promise<DelegateTaskResult> {
+  const startedAt = Date.now();
   const input = delegateTaskSchema.parse(rawInput);
   const built = buildWorkerMessages(input);
   if (built.estimatedInputTokens > input.input_token_limit) {
-    return {
+    return persistDelegationResult(input, {
       ...baseResult(input),
       status: 'insufficient_context',
       candidate: null,
@@ -442,7 +528,7 @@ export async function executeDelegateTask(
       review_mode: input.review_mode,
       quality_gate: 'review_required',
       patch_assessment: null,
-    };
+    }, Date.now() - startedAt);
   }
 
   const state = newFallbackState();
@@ -546,8 +632,8 @@ export async function executeDelegateTask(
     },
   });
 
-  if (terminal) return terminal;
-  return {
+  if (terminal) return persistDelegationResult(input, terminal, Date.now() - startedAt);
+  return persistDelegationResult(input, {
     ...baseResult(input),
     status: 'failed',
     candidate: null,
@@ -562,7 +648,7 @@ export async function executeDelegateTask(
     review_mode: input.review_mode,
     quality_gate: 'review_required',
     patch_assessment: null,
-  };
+  }, Date.now() - startedAt);
 }
 
 export async function executeDelegationPreset(

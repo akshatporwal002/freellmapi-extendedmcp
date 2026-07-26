@@ -138,6 +138,7 @@ describe('MCP server (/mcp, stateless Streamable HTTP)', () => {
       'delegate_tests',
       'list_models',
       'provider_health',
+      'record_delegation_feedback',
       'routing_info',
       'set_routing_strategy',
       'usage_summary',
@@ -155,6 +156,14 @@ describe('MCP server (/mcp, stateless Streamable HTTP)', () => {
     expect(tool.inputSchema.properties.selection_mode.enum).toEqual(['standard', 'task_aware', 'adaptive']);
     expect(tool.inputSchema.properties.review_mode.enum).toEqual(['none', 'blind', 'adversarial']);
     expect(tool.inputSchema.properties.shadow_mode.default).toBe(false);
+  });
+
+  it('feedback tool exposes a strict acceptance/revision/rejection contract', async () => {
+    const { body } = await rpc({ jsonrpc: '2.0', id: 24, method: 'tools/list' });
+    const tool = body.result.tools.find((item: any) => item.name === 'record_delegation_feedback');
+    expect(tool.inputSchema.additionalProperties).toBe(false);
+    expect(tool.inputSchema.properties.outcome.enum).toEqual(['accepted', 'revised', 'rejected']);
+    expect(tool.inputSchema.required).toEqual(['task_id', 'outcome']);
   });
 
   it('specialized delegation tools expose schemas without caller-overridable category or output mode', async () => {

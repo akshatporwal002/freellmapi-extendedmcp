@@ -72,6 +72,7 @@ The MCP result contains one text block whose text is JSON:
 
 ```json
 {
+  "task_id": "9a15c073-1111-4f64-8b88-85b0d98d5f1d",
   "status": "completed",
   "output_mode": "patch",
   "candidate": "diff --git a/server/src/lib/mode.ts b/server/src/lib/mode.ts\n...",
@@ -160,3 +161,30 @@ and validation warnings. The preference is evidence only; Codex still decides.
 - Workers cannot run verification commands. Codex must inspect and apply a
   candidate, then run deterministic checks in the repository.
 - `codex_review_required` is always `true`.
+
+## Feedback and adaptive evidence
+
+Every execution gets a UUID `task_id`. The service stores a compact
+`delegation_history` row containing hashed repository/context identifiers,
+classification, selection mode, model/provider, status, quality gate, token
+counts, latency, shadow flag, and policy versions. It never stores the
+objective, raw source context, patch, response, or credentials.
+
+Use `record_delegation_feedback` after Codex review:
+
+```json
+{
+  "task_id": "9a15c073-1111-4f64-8b88-85b0d98d5f1d",
+  "outcome": "revised",
+  "edit_distance": 14,
+  "regression": false,
+  "review_tokens": 320
+}
+```
+
+`outcome` is `accepted`, `revised`, or `rejected`. Adaptive routing requires at
+least five reviewed, non-shadow observations for the same repository, category,
+provider, and model. Below that floor, the result explicitly reports
+`selection_mode_fallback: "task_aware"`. With sufficient evidence, a bounded
+adjustment derived from observed acceptance quality and regressions augments
+task-aware ranking.

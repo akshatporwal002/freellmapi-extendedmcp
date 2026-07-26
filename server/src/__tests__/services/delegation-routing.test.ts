@@ -70,5 +70,22 @@ describe('delegation selection modes', () => {
     );
     expect(ranked[0].model_db_id).toBe(2);
   });
-});
 
+  it('adaptive mode applies bounded evidence only when supplied by history', () => {
+    const chain = [
+      row(1, 'Medium', 32_000, 1),
+      row(2, 'Medium', 32_000, 1),
+      row(3, 'Medium', 32_000, 1),
+      row(4, 'Medium', 32_000, 1),
+      row(5, 'Medium', 32_000, 1),
+    ];
+    const ranked = rankChainForSelection(chain, {
+      ...baseSelection,
+      mode: 'adaptive',
+      adaptiveScores: {
+        'mock/model-2': { samples: 8, score: 0.2 },
+      },
+    });
+    expect(ranked[0].model_db_id).toBe(2);
+  });
+});

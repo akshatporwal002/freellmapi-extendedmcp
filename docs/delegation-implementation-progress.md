@@ -4,8 +4,8 @@
 
 - Branch: `codex/intelligent-delegation-dev`
 - Current phase: Phase 2
-- Checkpoint: deterministic patch risk, quality floors, shadow mode, and review policies
-- Remote status: presets pushed; quality-policy checkpoint pending
+- Checkpoint: privacy-safe feedback history and evidence-bounded adaptive routing
+- Remote status: quality policies pushed; adaptive-history checkpoint pending
 
 ## Architecture decisions
 
@@ -50,6 +50,15 @@
   - `server/src/routes/mcp.ts`
   - `server/src/__tests__/services/delegation.test.ts`
   - `server/src/__tests__/routes/mcp.test.ts`
+- Phase 2 adaptive history:
+  - `server/src/db/migrations/20260727_000001_delegation_history.ts`
+  - `server/src/db/migrate/defaults.ts`
+  - `server/src/services/delegation.ts`
+  - `server/src/services/router.ts`
+  - `server/src/routes/mcp.ts`
+  - `server/src/__tests__/db/migrate/roundtrip.test.ts`
+  - `server/src/__tests__/db/migrate/delegation-history.test.ts`
+  - delegation, routing, and MCP tests
 
 ## Verification log
 
@@ -64,6 +73,9 @@
 | Targeted Phase 2 routing tests | Task-aware, adaptive fallback, standard compatibility, existing router, MCP, and delegation tests: 4 files, 43 tests passed after tuning high-risk capability weighting. |
 | Targeted preset/comparison tests | Specialized presets, two-model diversity, and MCP schemas: 2 files, 31 tests passed. |
 | Targeted quality-policy tests | Patch risk/scope, test-deletion rejection, shadow isolation, adversarial review, selection compatibility, and MCP schemas: 4 files, 50 tests passed. |
+| Adaptive history and migration tests | Feedback, privacy-safe telemetry, minimum evidence fallback, bounded adaptive score, general migration round trip, and focused migration checks: 6 files, 60 tests passed. |
+| `npm test` | Phase 2 gate: all new and existing tests passed except the same two pre-existing Windows permission-bit assertions in `db/hardening.test.ts`. |
+| `npm run build` | Phase 2 gate passed for server and client; existing Vite large-chunk warning remains. |
 
 The first sandboxed test attempt could not load the Vitest configuration because
 esbuild was denied access above the workspace. Required test/build commands are
@@ -79,14 +91,18 @@ therefore run with the approved unsandboxed execution path.
   `origin/codex/intelligent-delegation-dev`.
 - `03cd864 feat: add specialized delegation presets` — pushed to
   `origin/codex/intelligent-delegation-dev`.
-- Quality-policy checkpoint — pending.
+- `1c4264f feat: add delegation verification and telemetry` — pushed to
+  `origin/codex/intelligent-delegation-dev`.
+- Adaptive-history checkpoint — pending.
 
 ## Known limitations
 
 - Task-aware ranking currently uses catalog capability/context metadata layered
   over the existing strategy order. It does not yet use delegation-specific
   historical acceptance evidence.
-- Delegation telemetry is currently returned to the caller but is not persisted.
+- Adaptive scoring currently uses reviewed acceptance/revision/rejection and
+  regression signals. Token-savings calibration and uncertainty intervals need
+  more history and remain deferred.
 - Verification commands are intentionally not accepted or executed in Phase 1;
   deterministic verification remains the caller's responsibility.
 - The Windows filesystem does not expose POSIX permission bits in the form
@@ -100,5 +116,5 @@ therefore run with the approved unsandboxed execution path.
 
 ## Recommended next action
 
-Commit and push quality policies, then add feedback/telemetry contracts and
-history-backed adaptive foundations.
+Commit and push adaptive history, then continue with dependency-aware execution
+graph foundations.
