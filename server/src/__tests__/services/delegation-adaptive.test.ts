@@ -7,6 +7,7 @@ import {
   evaluateDelegationQualityFloor,
   executeDelegationCapabilityCanary,
   getDelegationPerformanceProfiles,
+  predictDelegationTokens,
   recommendDelegationDecomposition,
 } from '../../services/delegation-adaptive.js';
 import {
@@ -28,10 +29,11 @@ function seedHistory(
       task_id, repository_hash, category, size, risk, selection_mode,
       model_id, provider, status, quality_gate, prompt_tokens, output_tokens,
       latency_ms, context_receipt_hash, schema_version, prompt_version,
-      policy_version, outcome, edit_distance, regression, review_tokens
+      policy_version, outcome, edit_distance, regression, review_tokens,
+      usage_estimated
     ) VALUES (?, ?, 'implementation', 'small', 'low', 'adaptive',
       ?, ?, 'completed', 'pass', 100, 50, 20, 'receipt', '1', '1', '1',
-      ?, ?, ?, 30)
+      ?, ?, ?, 30, 0)
   `);
   outcomes.forEach((outcome, index) => insert.run(
     `${provider}-${model}-${index}`,
@@ -177,6 +179,34 @@ describe('adaptive delegation evidence', () => {
       provider: 'provider-a',
       model: 'model-a',
       estimated_direct_codex_tokens: 1000,
+    }).status).toBe('insufficient_evidence');
+  });
+
+  it('predicts tokens from actual local evidence and falls back to broader history', () => {
+    const local = predictDelegationTokens({
+      repository_id: 'adaptive-profile-repo',
+      category: 'implementation',
+      size: 'small',
+    });
+    expect(local).toMatchObject({
+      status: 'predicted',
+      samples: 20,
+      evidence_scope: 'repository',
+    });
+    expect(local.prediction?.total_tokens_confidence_95.mean).toBe(150);
+
+    const global = predictDelegationTokens({
+      repository_id: 'another-repository',
+      category: 'implementation',
+      size: 'small',
+    });
+    expect(global.status).toBe('predicted');
+    expect(global.evidence_scope).toBe('global');
+
+    expect(predictDelegationTokens({
+      repository_id: 'adaptive-profile-repo',
+      category: 'documentation',
+      size: 'large',
     }).status).toBe('insufficient_evidence');
   });
 

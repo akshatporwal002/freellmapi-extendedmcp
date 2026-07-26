@@ -4,8 +4,8 @@
 
 - Branch: `codex/intelligent-delegation-dev`
 - Current phase: Phase 4
-- Checkpoint: uncertainty-aware regression attribution and catalogue adaptation
-- Remote status: quality/savings pushed; regression/catalogue checkpoint pending
+- Checkpoint: repository-first token prediction with usage provenance
+- Remote status: regression/catalogue adaptation pushed; token-calibration checkpoint pending
 
 ## Architecture decisions
 
@@ -79,6 +79,12 @@
   - `server/src/services/delegation-adaptive.ts`
   - `server/src/services/router.ts`
   - migration, delegation, adaptive, routing, and MCP tests
+- Phase 4 token calibration:
+  - `server/src/db/migrations/20260727_000003_delegation_usage_provenance.ts`
+  - `server/src/db/migrate/defaults.ts`
+  - `server/src/services/delegation.ts`
+  - `server/src/services/delegation-adaptive.ts`
+  - migration, adaptive, MCP, and migration round-trip tests
 
 ## Verification log
 
@@ -100,6 +106,7 @@
 | Phase 4 adaptive evidence tests | Repository/category performance profiles, Wilson 95% intervals, progressive trust, strict shadow-only exploration budgets, decomposition recommendations, capability canary isolation, graph/routing/MCP regressions: 6 files, 67 tests passed. |
 | Phase 4 quality/savings tests | Pre-inference route rejection without provider calls, Wilson-bounded quality policies, Student-t savings intervals, insufficient-evidence behavior, MCP schemas, and delegation regressions: 6 files, 69 tests passed. Server TypeScript build passed. |
 | Phase 4 regression/catalogue tests | Reversible attribution migration, relationship/confidence validation, confidence-weighted adaptive penalties, disabled-model counterfactual exclusion, full migration round trip, delegation/routing/MCP regressions: 8 files, 70 tests passed. Server TypeScript build passed. |
+| Phase 4 token-calibration tests | Reversible actual/estimated usage provenance, repository-first prediction, global evidence fallback, insufficient-evidence behavior, Student-t ranges, full migration round trip, delegation/routing/MCP regressions: 9 files, 72 tests passed. Server TypeScript build passed. |
 
 The first sandboxed test attempt could not load the Vitest configuration because
 esbuild was denied access above the workspace. Required test/build commands are
@@ -125,7 +132,9 @@ therefore run with the approved unsandboxed execution path.
   `origin/codex/intelligent-delegation-dev`.
 - `e9ad5eb feat: enforce delegation quality floors` — pushed to
   `origin/codex/intelligent-delegation-dev`.
-- Phase 4 regression/catalogue checkpoint — pending.
+- `6f2688c feat: add uncertainty-aware delegation feedback` — pushed to
+  `origin/codex/intelligent-delegation-dev`.
+- Phase 4 token-calibration checkpoint — pending.
 
 ## Known limitations
 
@@ -145,12 +154,17 @@ therefore run with the approved unsandboxed execution path.
 - Phase 3 persistent/resumable queues and in-flight provider cancellation are
   not implemented; the current graph safely stops new dispatch and bounds each
   provider call by its remaining time.
-- Phase 4 complexity prediction calibration, persistent catalogue-change event
-  scheduling, and a formal bounded escalation ladder remain unimplemented.
-  Counterfactual routing already filters the live catalogue, but there is no
-  background scheduler in the stateless MCP service.
+- Persistent catalogue-change event scheduling and resumable job queues remain
+  unimplemented because the current MCP service is stateless and has no durable
+  scheduler ownership, restart contract, retention policy, or operator API.
+- A single formal deterministic/fast/strong/reviewer escalation tool remains
+  unimplemented. Existing deterministic validation, bounded fallback attempts,
+  task/risk-aware strength scoring, independent comparison/review tools, and
+  mandatory Codex review cover its individual safety stages, but changing the
+  router to impose task-local `fast` versus `strong` strategy tiers requires an
+  explicit product decision about interaction with the user's routing strategy.
 
 ## Recommended next action
 
-Commit and push regression/catalogue adaptation, then run the full Phase 4 gate
-and final branch/security audit.
+Commit and push token calibration, then run the full Phase 4 gate and final
+branch/security audit.

@@ -16,6 +16,7 @@ import * as requestServedModel from '../migrations/20260726_000005_request_serve
 import * as attemptErrorSummary from '../migrations/20260726_000006_attempt_error_summary.js';
 import * as delegationHistory from '../migrations/20260727_000001_delegation_history.js';
 import * as delegationRegressionAttribution from '../migrations/20260727_000002_delegation_regression_attribution.js';
+import * as delegationUsageProvenance from '../migrations/20260727_000003_delegation_usage_provenance.js';
 
 export interface MigrationModule {
   up(db: Db): void;
@@ -44,6 +45,7 @@ export const REQUEST_SERVED_MODEL_FILENAME = '20260726_000005_request_served_mod
 export const ATTEMPT_ERROR_SUMMARY_FILENAME = '20260726_000006_attempt_error_summary.ts';
 export const DELEGATION_HISTORY_FILENAME = '20260727_000001_delegation_history.ts';
 export const DELEGATION_REGRESSION_ATTRIBUTION_FILENAME = '20260727_000002_delegation_regression_attribution.ts';
+export const DELEGATION_USAGE_PROVENANCE_FILENAME = '20260727_000003_delegation_usage_provenance.ts';
 
 export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: LEGACY_BASELINE_FILENAME, module: legacyBaseline },
@@ -63,4 +65,5 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: ATTEMPT_ERROR_SUMMARY_FILENAME, module: attemptErrorSummary },
   { filename: DELEGATION_HISTORY_FILENAME, module: delegationHistory },
   { filename: DELEGATION_REGRESSION_ATTRIBUTION_FILENAME, module: delegationRegressionAttribution },
+  { filename: DELEGATION_USAGE_PROVENANCE_FILENAME, module: delegationUsageProvenance },
 ];

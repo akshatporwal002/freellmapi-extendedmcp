@@ -144,6 +144,7 @@ describe('MCP server (/mcp, stateless Streamable HTTP)', () => {
       'execute_delegation_graph',
       'list_models',
       'plan_delegation_graph',
+      'predict_delegation_tokens',
       'provider_health',
       'recommend_delegation_decomposition',
       'record_delegation_feedback',
@@ -193,6 +194,7 @@ describe('MCP server (/mcp, stateless Streamable HTTP)', () => {
     expect(byName('delegation_performance_profiles').inputSchema.properties.min_samples.minimum).toBe(1);
     expect(byName('estimate_delegation_savings').inputSchema.properties.min_samples.minimum).toBe(2);
     expect(byName('evaluate_delegation_quality_floor').inputSchema.properties.policy.additionalProperties).toBe(false);
+    expect(byName('predict_delegation_tokens').inputSchema.properties.min_samples.minimum).toBe(2);
     expect(byName('evaluate_delegation_counterfactual').inputSchema.properties.exploration_budget.maximum).toBe(3);
     expect(byName('recommend_delegation_decomposition').inputSchema.properties.estimated_tokens.maximum).toBe(1000000);
     expect(byName('delegation_capability_canary').inputSchema.properties.shadow_mode).toBeDefined();

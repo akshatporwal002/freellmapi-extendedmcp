@@ -333,6 +333,67 @@ export function estimateDelegationSavings(rawInput: unknown) {
   };
 }
 
+const tokenPredictionSchema = z.object({
+  repository_id: z.string().min(1).max(200),
+  category: z.enum([
+    'implementation', 'bug_fix', 'debugging', 'testing', 'documentation',
+    'review', 'refactoring', 'research', 'repository_analysis',
+  ]),
+  size: z.enum(['small', 'medium', 'large']),
+  min_samples: z.number().int().min(2).max(1000).default(5),
+}).strict();
+
+export function predictDelegationTokens(rawInput: unknown) {
+  const input = tokenPredictionSchema.parse(rawInput);
+  const query = (repositoryHash?: string) => getDb().prepare(`
+    SELECT prompt_tokens, output_tokens
+      FROM delegation_history
+     WHERE category = ?
+       AND size = ?
+       ${repositoryHash ? 'AND repository_hash = ?' : ''}
+       AND status = 'completed'
+       AND shadow_mode = 0
+       AND usage_estimated = 0
+       AND prompt_tokens IS NOT NULL
+       AND output_tokens IS NOT NULL
+     ORDER BY created_at, task_id
+  `).all(
+    input.category,
+    input.size,
+    ...(repositoryHash ? [repositoryHash] : []),
+  ) as Array<{ prompt_tokens: number; output_tokens: number }>;
+
+  let evidenceScope: 'repository' | 'global' = 'repository';
+  let rows = query(hash(input.repository_id));
+  if (rows.length < input.min_samples) {
+    evidenceScope = 'global';
+    rows = query();
+  }
+  if (rows.length < input.min_samples) {
+    return {
+      status: 'insufficient_evidence' as const,
+      samples: rows.length,
+      required_samples: input.min_samples,
+      attempted_scope: evidenceScope,
+      prediction: null,
+    };
+  }
+  const prompt = rows.map(row => row.prompt_tokens);
+  const output = rows.map(row => row.output_tokens);
+  const total = rows.map(row => row.prompt_tokens + row.output_tokens);
+  return {
+    status: 'predicted' as const,
+    samples: rows.length,
+    evidence_scope: evidenceScope,
+    prediction: {
+      prompt_tokens_confidence_95: meanConfidence95(prompt),
+      output_tokens_confidence_95: meanConfidence95(output),
+      total_tokens_confidence_95: meanConfidence95(total),
+    },
+    methodology: 'Student-t 95% interval over provider-reported, non-shadow usage for matching category and declared size',
+  };
+}
+
 export async function executeDelegationCapabilityCanary(
   rawInput: unknown,
   dependencies?: DelegationDependencies,

@@ -17,6 +17,7 @@ import {
   evaluateDelegationQualityFloor,
   executeDelegationCapabilityCanary,
   getDelegationPerformanceProfiles,
+  predictDelegationTokens,
   recommendDelegationDecomposition,
 } from '../services/delegation-adaptive.js';
 import {
@@ -498,6 +499,22 @@ TOOLS.estimate_delegation_savings = {
     required: ['repository_id', 'category', 'provider', 'model', 'estimated_direct_codex_tokens'],
   },
   run: estimateDelegationSavings,
+};
+
+TOOLS.predict_delegation_tokens = {
+  description: 'Predict prompt, output, and total worker tokens as Student-t 95% intervals from provider-reported usage for the same task category and declared size, preferring repository-local evidence.',
+  inputSchema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      repository_id: { type: 'string', minLength: 1, maxLength: 200 },
+      category: { type: 'string', enum: ['implementation', 'bug_fix', 'debugging', 'testing', 'documentation', 'review', 'refactoring', 'research', 'repository_analysis'] },
+      size: { type: 'string', enum: ['small', 'medium', 'large'] },
+      min_samples: { type: 'integer', minimum: 2, maximum: 1000, default: 5 },
+    },
+    required: ['repository_id', 'category', 'size'],
+  },
+  run: predictDelegationTokens,
 };
 
 TOOLS.evaluate_delegation_counterfactual = {

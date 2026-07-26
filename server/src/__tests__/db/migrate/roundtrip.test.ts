@@ -21,6 +21,7 @@ const REQUEST_SERVED_MODEL_FILENAME = '20260726_000005_request_served_model.ts';
 const ATTEMPT_ERROR_SUMMARY_FILENAME = '20260726_000006_attempt_error_summary.ts';
 const DELEGATION_HISTORY_FILENAME = '20260727_000001_delegation_history.ts';
 const DELEGATION_REGRESSION_ATTRIBUTION_FILENAME = '20260727_000002_delegation_regression_attribution.ts';
+const DELEGATION_USAGE_PROVENANCE_FILENAME = '20260727_000003_delegation_usage_provenance.ts';
 
 interface SchemaRow {
   type: string;
@@ -88,6 +89,7 @@ describe('migration round trip', () => {
         ATTEMPT_ERROR_SUMMARY_FILENAME,
         DELEGATION_HISTORY_FILENAME,
         DELEGATION_REGRESSION_ATTRIBUTION_FILENAME,
+        DELEGATION_USAGE_PROVENANCE_FILENAME,
       ]);
     } finally {
       db.close();

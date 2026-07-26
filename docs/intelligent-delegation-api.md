@@ -265,3 +265,10 @@ with complete worker and review usage produce separate Student-t 95% mean
 intervals for premium-token savings, worker usage, and Codex review usage.
 Below the requested sample floor it returns `insufficient_evidence`; unreported
 rewrite or verification effort is never silently assumed to be zero.
+
+`predict_delegation_tokens` learns prompt, output, and total worker-token ranges
+for a category and declared task size. It prefers repository-local observations
+and falls back to global observations only when the local sample is too small.
+Only provider-reported, non-shadow usage participates; locally estimated usage
+is tagged at persistence time and excluded to prevent an estimator from
+training on its own output.

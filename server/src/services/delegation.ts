@@ -479,9 +479,9 @@ function persistDelegationResult(
     INSERT INTO delegation_history (
       task_id, repository_hash, category, size, risk, selection_mode,
       selection_mode_fallback, model_id, provider, status, quality_gate,
-      prompt_tokens, output_tokens, latency_ms, shadow_mode,
+      prompt_tokens, output_tokens, usage_estimated, latency_ms, shadow_mode,
       context_receipt_hash, schema_version, prompt_version, policy_version
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     result.task_id,
     sha256(input.repository_id),
@@ -496,6 +496,7 @@ function persistDelegationResult(
     result.quality_gate,
     result.usage?.input_tokens ?? null,
     result.usage?.output_tokens ?? null,
+    result.usage == null ? null : result.usage.estimated ? 1 : 0,
     latencyMs,
     result.shadow_mode ? 1 : 0,
     sha256(JSON.stringify(result.context_receipt.entries)),
