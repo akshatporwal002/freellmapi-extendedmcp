@@ -80,6 +80,42 @@ export const delegateTaskSchema = z.object({
 
 export type DelegateTaskInput = z.infer<typeof delegateTaskSchema>;
 
+export const delegationPresetSchema = delegateTaskSchema.omit({
+  category: true,
+  output_mode: true,
+});
+export type DelegationPresetInput = z.infer<typeof delegationPresetSchema>;
+
+export type DelegationPreset =
+  | 'code_generation'
+  | 'tests'
+  | 'review'
+  | 'documentation'
+  | 'debugging';
+
+const DELEGATION_PRESETS: Record<DelegationPreset, Pick<DelegateTaskInput, 'category' | 'output_mode'>> = {
+  code_generation: { category: 'implementation', output_mode: 'patch' },
+  tests: { category: 'testing', output_mode: 'patch' },
+  review: { category: 'review', output_mode: 'analysis' },
+  documentation: { category: 'documentation', output_mode: 'patch' },
+  debugging: { category: 'debugging', output_mode: 'analysis' },
+};
+
+export const compareModelOutputsSchema = delegateTaskSchema.extend({
+  candidate_count: z.literal(2).default(2),
+});
+export type CompareModelOutputsInput = z.infer<typeof compareModelOutputsSchema>;
+
+export interface CompareModelOutputsResult {
+  status: 'completed' | 'partial' | 'failed';
+  selection_mode: SelectionMode;
+  candidates: DelegateTaskResult[];
+  preferred_candidate: number | null;
+  model_diversity_achieved: boolean;
+  validation_warnings: string[];
+  codex_review_required: true;
+}
+
 export interface DelegationAttemptSummary {
   ordinal: number;
   platform: string;
@@ -427,5 +463,65 @@ export async function executeDelegateTask(
     usage: null,
     attempts,
     validation_warnings: terminalFailure?.warnings ?? built.warnings,
+  };
+}
+
+export async function executeDelegationPreset(
+  preset: DelegationPreset,
+  rawInput: unknown,
+  dependencies: DelegationDependencies = defaultDependencies,
+): Promise<DelegateTaskResult> {
+  const input = delegationPresetSchema.parse(rawInput);
+  return executeDelegateTask({ ...input, ...DELEGATION_PRESETS[preset] }, dependencies);
+}
+
+function candidateQuality(result: DelegateTaskResult): number {
+  if (result.status !== 'completed') return -1;
+  return (result.confidence ?? 0) - result.validation_warnings.length * 0.05;
+}
+
+export async function executeCompareModelOutputs(
+  rawInput: unknown,
+  dependencies: DelegationDependencies = defaultDependencies,
+): Promise<CompareModelOutputsResult> {
+  const { candidate_count: _candidateCount, ...input } = compareModelOutputsSchema.parse(rawInput);
+  let firstModelDbId: number | undefined;
+  const firstDependencies: DelegationDependencies = {
+    ...dependencies,
+    route: (...args) => {
+      const selected = dependencies.route(...args);
+      firstModelDbId = selected.modelDbId;
+      return selected;
+    },
+  };
+  const first = await executeDelegateTask(input, firstDependencies);
+
+  const secondDependencies: DelegationDependencies = {
+    ...dependencies,
+    route: (estimatedTokens, skipKeys, skipModels, selectionMode, task) => {
+      const exclusions = new Set(skipModels);
+      if (firstModelDbId !== undefined) exclusions.add(firstModelDbId);
+      return dependencies.route(estimatedTokens, skipKeys, exclusions, selectionMode, task);
+    },
+  };
+  const second = await executeDelegateTask(input, secondDependencies);
+  const completed = [first, second].filter(candidate => candidate.status === 'completed').length;
+  const diversity = Boolean(
+    first.selected_model &&
+    second.selected_model &&
+    (first.selected_model !== second.selected_model || first.selected_provider !== second.selected_provider),
+  );
+  const warnings: string[] = [];
+  if (!diversity) warnings.push('independent model diversity was not achieved');
+  const scores = [candidateQuality(first), candidateQuality(second)];
+  const preferred = completed === 0 ? null : (scores[1] > scores[0] ? 1 : 0);
+  return {
+    status: completed === 2 ? 'completed' : completed === 1 ? 'partial' : 'failed',
+    selection_mode: input.selection_mode,
+    candidates: [first, second],
+    preferred_candidate: preferred,
+    model_diversity_achieved: diversity,
+    validation_warnings: warnings,
+    codex_review_required: true,
   };
 }

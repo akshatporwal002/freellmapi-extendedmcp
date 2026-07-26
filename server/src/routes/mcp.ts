@@ -7,7 +7,12 @@ import { supportedParametersForPlatforms } from '../lib/sampling-params.js';
 import { getRoutingScores, getRoutingStrategy, setRoutingStrategy } from '../services/router.js';
 import type { RoutingStrategy } from '../services/scoring.js';
 import { getCacheStats } from '../services/cache.js';
-import { executeDelegateTask } from '../services/delegation.js';
+import {
+  executeDelegateTask,
+  executeCompareModelOutputs,
+  executeDelegationPreset,
+  type DelegationPreset,
+} from '../services/delegation.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // MCP server for the gateway (POST /mcp) — Model Context Protocol over
@@ -284,6 +289,64 @@ const TOOLS: Record<string, McpTool> = {
     },
     run: executeDelegateTask,
   },
+};
+
+const delegationBase = TOOLS.delegate_task.inputSchema;
+const delegationProperties = { ...(delegationBase.properties as Record<string, unknown>) };
+delete delegationProperties.category;
+delete delegationProperties.output_mode;
+const delegationRequired = (delegationBase.required as string[])
+  .filter(field => field !== 'category' && field !== 'output_mode');
+const delegationPresetInputSchema: Record<string, unknown> = {
+  ...delegationBase,
+  properties: delegationProperties,
+  required: delegationRequired,
+};
+
+const DELEGATION_PRESET_TOOLS: Record<
+  string,
+  { preset: DelegationPreset; description: string }
+> = {
+  delegate_code_generation: {
+    preset: 'code_generation',
+    description: 'Generate a bounded implementation patch from caller-supplied source context, invariants, and acceptance criteria. The patch is untrusted and always requires Codex review.',
+  },
+  delegate_tests: {
+    preset: 'tests',
+    description: 'Generate a bounded test patch from caller-supplied behavior and acceptance criteria. The worker cannot execute tests or change files directly.',
+  },
+  delegate_review: {
+    preset: 'review',
+    description: 'Independently review caller-supplied code or a candidate patch and return structured analysis without repository access or mutation.',
+  },
+  delegate_documentation: {
+    preset: 'documentation',
+    description: 'Generate a bounded documentation patch from completed interfaces and caller-supplied facts without inventing unsupported behavior.',
+  },
+  delegate_debugging: {
+    preset: 'debugging',
+    description: 'Analyze a contained failure from caller-supplied errors, reproduction steps, and source context; abstain when evidence is insufficient.',
+  },
+};
+
+for (const [name, tool] of Object.entries(DELEGATION_PRESET_TOOLS)) {
+  TOOLS[name] = {
+    description: tool.description,
+    inputSchema: delegationPresetInputSchema,
+    run: args => executeDelegationPreset(tool.preset, args),
+  };
+}
+
+TOOLS.compare_model_outputs = {
+  description: 'Run the same bounded task independently on two different worker models when capacity permits, preserve both candidates and validation evidence, and return a deterministic preference for Codex review.',
+  inputSchema: {
+    ...delegationBase,
+    properties: {
+      ...(delegationBase.properties as Record<string, unknown>),
+      candidate_count: { type: 'integer', enum: [2], default: 2 },
+    },
+  },
+  run: executeCompareModelOutputs,
 };
 
 // ── JSON-RPC dispatch ────────────────────────────────────────────────────

@@ -117,6 +117,23 @@ Abstentions include a reason and missing-context list. Provider and model
 identities are included only when a route was selected. Usage is estimated when
 the provider omits token accounting.
 
+## Specialized tools
+
+Five tools are strict presets over `delegate_task`; their schema omits
+caller-overridable `category` and `output_mode` fields:
+
+- `delegate_code_generation` — implementation patch.
+- `delegate_tests` — test patch.
+- `delegate_review` — review analysis.
+- `delegate_documentation` — documentation patch.
+- `delegate_debugging` — debugging analysis.
+
+`compare_model_outputs` runs the same complete task packet twice. The second
+run excludes the first selected model, preserving both candidates, usage,
+attempts, and validation warnings. It reports whether model diversity was
+achieved and a deterministic preference based on completion status, confidence,
+and validation warnings. The preference is evidence only; Codex still decides.
+
 ## Safety and validation
 
 - Likely credentials and private keys are redacted before inference.

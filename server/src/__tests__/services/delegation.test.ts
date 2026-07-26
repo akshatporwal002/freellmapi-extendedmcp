@@ -5,6 +5,8 @@ import type { RouteResult } from '../../services/router.js';
 import {
   delegateTaskSchema,
   executeDelegateTask,
+  executeDelegationPreset,
+  executeCompareModelOutputs,
   redactDelegationText,
   type DelegateTaskInput,
   type DelegationDependencies,
@@ -222,5 +224,51 @@ describe('delegation service', () => {
     const redacted = redactDelegationText(input);
     expect(redacted.redactions).toBe(2);
     expect(redacted.text).not.toContain('secret');
+  });
+
+  it('specialized presets enforce category and output mode over one executor', async () => {
+    const seen: Array<{ category: string; outputMode: string }> = [];
+    const worker = route(1, async messages => {
+      const packet = JSON.parse(String(messages[1].content).replace(/^TASK_PACKET_JSON\n/, ''));
+      seen.push({ category: packet.category, outputMode: packet.output_mode });
+      return response(JSON.stringify({
+        status: 'completed',
+        candidate: packet.output_mode === 'patch'
+          ? 'diff --git a/server/src/helper.ts b/server/src/helper.ts'
+          : 'No blocking findings.',
+        confidence: 0.8,
+      }));
+    });
+    const { category: _category, output_mode: _outputMode, ...presetInput } = baseInput;
+    const code = await executeDelegationPreset('code_generation', presetInput, dependencies([worker]));
+    const review = await executeDelegationPreset('review', presetInput, dependencies([worker]));
+    expect(code.output_mode).toBe('patch');
+    expect(review.output_mode).toBe('analysis');
+    expect(seen).toEqual([
+      { category: 'implementation', outputMode: 'patch' },
+      { category: 'review', outputMode: 'analysis' },
+    ]);
+  });
+
+  it('compares two independently routed models and returns both candidates', async () => {
+    const first = route(1, async () => response(JSON.stringify({
+      status: 'completed',
+      candidate: 'diff --git a/server/src/helper.ts b/server/src/helper.ts\n# first',
+      confidence: 0.7,
+    })));
+    const second = route(2, async () => response(JSON.stringify({
+      status: 'completed',
+      candidate: 'diff --git a/server/src/helper.ts b/server/src/helper.ts\n# second',
+      confidence: 0.9,
+    })));
+    const result = await executeCompareModelOutputs(
+      { ...baseInput, candidate_count: 2 },
+      dependencies([first, second]),
+    );
+    expect(result.status).toBe('completed');
+    expect(result.model_diversity_achieved).toBe(true);
+    expect(result.candidates.map(item => item.selected_model)).toEqual(['worker-1', 'worker-2']);
+    expect(result.preferred_candidate).toBe(1);
+    expect(result.codex_review_required).toBe(true);
   });
 });
