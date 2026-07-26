@@ -49,4 +49,3 @@ export function up(db: Db): void {
 export function down(db: Db): void {
   db.exec('DROP TABLE IF EXISTS delegation_history');
 }
-

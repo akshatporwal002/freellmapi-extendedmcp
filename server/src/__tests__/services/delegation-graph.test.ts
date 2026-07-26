@@ -142,4 +142,3 @@ describe('delegation job graphs', () => {
     expect(result.jobs[0].state).toBe('cancelled');
   });
 });
-

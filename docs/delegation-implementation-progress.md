@@ -3,9 +3,10 @@
 ## Current phase and checkpoint
 
 - Branch: `codex/intelligent-delegation-dev`
-- Current phase: Phase 4
-- Checkpoint: repository-first token prediction with usage provenance
-- Remote status: regression/catalogue adaptation pushed; token-calibration checkpoint pending
+- Current phase: Phase 4 safe stateless subset complete
+- Checkpoint: final verification and security audit
+- Remote status: all implementation checkpoints through token calibration pushed;
+  final audit checkpoint pending
 
 ## Architecture decisions
 
@@ -107,6 +108,9 @@
 | Phase 4 quality/savings tests | Pre-inference route rejection without provider calls, Wilson-bounded quality policies, Student-t savings intervals, insufficient-evidence behavior, MCP schemas, and delegation regressions: 6 files, 69 tests passed. Server TypeScript build passed. |
 | Phase 4 regression/catalogue tests | Reversible attribution migration, relationship/confidence validation, confidence-weighted adaptive penalties, disabled-model counterfactual exclusion, full migration round trip, delegation/routing/MCP regressions: 8 files, 70 tests passed. Server TypeScript build passed. |
 | Phase 4 token-calibration tests | Reversible actual/estimated usage provenance, repository-first prediction, global evidence fallback, insufficient-evidence behavior, Student-t ranges, full migration round trip, delegation/routing/MCP regressions: 9 files, 72 tests passed. Server TypeScript build passed. |
+| `npm test` | Final gate: every server test passed except the same two pre-existing Windows permission-bit assertions in `db/hardening.test.ts` (`mode & 0o077` was `54`). No delegation-layer regression appeared. |
+| `npm run test -w client --if-present` | Exited successfully; the client has no test script. |
+| `npm run build` | Final server/client build passed. The existing Vite large-chunk warning remains. |
 
 The first sandboxed test attempt could not load the Vitest configuration because
 esbuild was denied access above the workspace. Required test/build commands are
@@ -134,7 +138,19 @@ therefore run with the approved unsandboxed execution path.
   `origin/codex/intelligent-delegation-dev`.
 - `6f2688c feat: add uncertainty-aware delegation feedback` — pushed to
   `origin/codex/intelligent-delegation-dev`.
-- Phase 4 token-calibration checkpoint — pending.
+- `0502658 feat: calibrate delegation token predictions` — pushed to
+  `origin/codex/intelligent-delegation-dev`.
+- Final audit checkpoint — pending.
+
+## Final audit
+
+- Branch delta contains 24 documentation, service, route, migration, and test
+  files; no environment files, databases, WAL files, logs, encryption keys, or
+  `.codex` files are tracked by the branch.
+- The only secret-pattern hit is an intentional private-key marker in the
+  redaction unit test; it contains synthetic fixture text, not key material.
+- Local `.codex/` content remains untracked and was not inspected or staged.
+- Full branch whitespace checks pass after final EOF cleanup.
 
 ## Known limitations
 
@@ -166,5 +182,5 @@ therefore run with the approved unsandboxed execution path.
 
 ## Recommended next action
 
-Commit and push token calibration, then run the full Phase 4 gate and final
-branch/security audit.
+Choose durable scheduler ownership and task-local escalation semantics before
+adding resumable queues or a unified fast/strong/reviewer execution ladder.
