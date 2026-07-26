@@ -12,6 +12,12 @@ import {
   planDelegationGraph,
 } from '../services/delegation-graph.js';
 import {
+  evaluateDelegationCounterfactual,
+  executeDelegationCapabilityCanary,
+  getDelegationPerformanceProfiles,
+  recommendDelegationDecomposition,
+} from '../services/delegation-adaptive.js';
+import {
   executeDelegateTask,
   executeCompareModelOutputs,
   executeDelegationPreset,
@@ -413,6 +419,63 @@ TOOLS.execute_delegation_graph = {
   description: 'Execute a validated patch-returning delegation graph in bounded parallel batches with dependency verification gates, ownership protection, timeout propagation, and deterministic result ordering.',
   inputSchema: delegationGraphInputSchema,
   run: executeDelegationGraph,
+};
+
+TOOLS.delegation_performance_profiles = {
+  description: 'Return privacy-safe model/category/repository performance profiles with acceptance, revision, rejection, regression, latency, edit-distance, review effort, progressive trust tier, and Wilson 95% confidence intervals.',
+  inputSchema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      repository_id: { type: 'string', minLength: 1, maxLength: 200 },
+      category: { type: 'string', enum: ['implementation', 'bug_fix', 'debugging', 'testing', 'documentation', 'review', 'refactoring', 'research', 'repository_analysis'] },
+      min_samples: { type: 'integer', minimum: 1, maximum: 1000, default: 1 },
+    },
+  },
+  run: getDelegationPerformanceProfiles,
+};
+
+TOOLS.evaluate_delegation_counterfactual = {
+  description: 'Rank evidence-qualified alternative models for shadow-only counterfactual evaluation under a strict exploration budget of at most three candidates.',
+  inputSchema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      repository_id: { type: 'string', minLength: 1, maxLength: 200 },
+      category: { type: 'string', enum: ['implementation', 'bug_fix', 'debugging', 'testing', 'documentation', 'review', 'refactoring', 'research', 'repository_analysis'] },
+      current_provider: { type: 'string', minLength: 1, maxLength: 100 },
+      current_model: { type: 'string', minLength: 1, maxLength: 300 },
+      exploration_budget: { type: 'integer', minimum: 0, maximum: 3, default: 1 },
+      min_samples: { type: 'integer', minimum: 5, maximum: 1000, default: 5 },
+    },
+    required: ['repository_id', 'category', 'current_provider', 'current_model'],
+  },
+  run: evaluateDelegationCounterfactual,
+};
+
+TOOLS.recommend_delegation_decomposition = {
+  description: 'Recommend mechanical ownership boundaries when a task is large, high-risk, broad, or context-heavy without making architectural decisions for Codex.',
+  inputSchema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      objective: { type: 'string', minLength: 1, maxLength: 10000 },
+      category: { type: 'string', minLength: 1, maxLength: 100 },
+      size: { type: 'string', enum: ['small', 'medium', 'large'] },
+      risk: { type: 'string', enum: ['low', 'medium', 'high'] },
+      permitted_files: { type: 'array', maxItems: 100, items: { type: 'string' }, default: [] },
+      logical_scopes: { type: 'array', maxItems: 100, items: { type: 'string' }, default: [] },
+      estimated_tokens: { type: 'integer', minimum: 1, maximum: 1000000 },
+    },
+    required: ['objective', 'category', 'size', 'risk'],
+  },
+  run: recommendDelegationDecomposition,
+};
+
+TOOLS.delegation_capability_canary = {
+  description: 'Run one bounded delegation task as a single-attempt shadow-only capability canary; never marks its candidate for application.',
+  inputSchema: delegationBase,
+  run: executeDelegationCapabilityCanary,
 };
 
 // ── JSON-RPC dispatch ────────────────────────────────────────────────────

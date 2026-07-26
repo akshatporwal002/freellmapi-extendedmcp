@@ -3,9 +3,9 @@
 ## Current phase and checkpoint
 
 - Branch: `codex/intelligent-delegation-dev`
-- Current phase: Phase 3
-- Checkpoint: dependency-aware patch-returning execution graphs
-- Remote status: Phase 2 adaptive history pushed; Phase 3 graph checkpoint pending
+- Current phase: Phase 4
+- Checkpoint: confidence-bounded performance profiles and controlled exploration
+- Remote status: Phase 3 graph foundations pushed; Phase 4 adaptive checkpoint pending
 
 ## Architecture decisions
 
@@ -64,6 +64,12 @@
   - `server/src/routes/mcp.ts`
   - `server/src/__tests__/services/delegation-graph.test.ts`
   - `server/src/__tests__/routes/mcp.test.ts`
+- Phase 4 adaptive evidence:
+  - `server/src/services/delegation-adaptive.ts`
+  - `server/src/routes/mcp.ts`
+  - `server/src/__tests__/services/delegation-adaptive.test.ts`
+  - `server/src/__tests__/routes/mcp.test.ts`
+  - `docs/intelligent-delegation-api.md`
 
 ## Verification log
 
@@ -82,6 +88,7 @@
 | `npm test` | Phase 2 gate: all new and existing tests passed except the same two pre-existing Windows permission-bit assertions in `db/hardening.test.ts`. |
 | `npm run build` | Phase 2 gate passed for server and client; existing Vite large-chunk warning remains. |
 | Phase 3 graph tests | Deterministic planning/replay, cycle and ownership rejection, dependency serialization, bounded parallelism, verification gates, cancellation, MCP schemas, and routing regressions: 5 files, 62 tests passed. |
+| Phase 4 adaptive evidence tests | Repository/category performance profiles, Wilson 95% intervals, progressive trust, strict shadow-only exploration budgets, decomposition recommendations, capability canary isolation, graph/routing/MCP regressions: 6 files, 67 tests passed. |
 
 The first sandboxed test attempt could not load the Vitest configuration because
 esbuild was denied access above the workspace. Required test/build commands are
@@ -101,16 +108,18 @@ therefore run with the approved unsandboxed execution path.
   `origin/codex/intelligent-delegation-dev`.
 - `e55a119 feat: add adaptive routing history` — pushed to
   `origin/codex/intelligent-delegation-dev`.
-- Phase 3 graph checkpoint — pending.
+- `305111a feat: add dependency-aware delegation graphs` — pushed to
+  `origin/codex/intelligent-delegation-dev`.
+- Phase 4 adaptive evidence checkpoint — pending.
 
 ## Known limitations
 
-- Task-aware ranking currently uses catalog capability/context metadata layered
-  over the existing strategy order. It does not yet use delegation-specific
-  historical acceptance evidence.
-- Adaptive scoring currently uses reviewed acceptance/revision/rejection and
-  regression signals. Token-savings calibration and uncertainty intervals need
-  more history and remain deferred.
+- Adaptive scoring uses reviewed acceptance/revision/rejection and regression
+  signals. Its bounded score adjustment falls back to task-aware selection
+  below five matching reviewed observations.
+- Performance profiles expose uncertainty for usable outcomes, but calibrated
+  premium-token savings still require a direct-implementation estimate and a
+  statistically explicit overhead model.
 - Verification commands are intentionally not accepted or executed in Phase 1;
   deterministic verification remains the caller's responsibility.
 - The Windows filesystem does not expose POSIX permission bits in the form
@@ -118,14 +127,16 @@ therefore run with the approved unsandboxed execution path.
 
 ## Deferred work
 
-- Phase 2 presets, review policies, feedback, and telemetry.
 - Phase 3 persistent/resumable queues and in-flight provider cancellation are
   not implemented; the current graph safely stops new dispatch and bounds each
   provider call by its remaining time.
-- Phase 4 history-backed adaptive execution.
+- Phase 4 token/complexity calibration, savings ranges, uncertain regression
+  attribution, catalogue-change scheduling, pre-dispatch quality-floor
+  enforcement, and a formal bounded escalation ladder remain to be evaluated
+  as separate production-quality slices.
 
 ## Recommended next action
 
-Commit and push graph foundations, then continue with Phase 4 calibration,
-decomposition recommendations, capability canaries, and counterfactual
-evaluation.
+Commit and push adaptive evidence, then add confidence-bounded savings estimates
+and explicit quality-floor evaluation without weakening insufficient-evidence
+fallbacks.

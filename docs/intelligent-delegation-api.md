@@ -214,3 +214,25 @@ or cancellation, and never applies worker patches.
 An optional `feature_brief` is added as caller-supplied continuity context to
 each job. Provider/model concurrency remains enforced by the existing router's
 in-flight leases.
+
+## Adaptive evidence and controlled exploration
+
+`delegation_performance_profiles` aggregates reviewed, non-shadow executions by
+repository hash, category, provider, and model. Profiles expose acceptance,
+revision, rejection, regression, latency, edit-distance, and token evidence.
+Usable-rate uncertainty is reported as a Wilson 95% interval, and trust tiers
+advance only after explicit sample and outcome thresholds are met.
+
+`evaluate_delegation_counterfactual` ranks historically eligible alternatives
+without dispatching them. Its exploration budget is limited to three, and every
+recommendation is explicitly `shadow_only`. No alternative is recommended when
+the requested repository/category lacks sufficient reviewed evidence.
+
+`recommend_delegation_decomposition` identifies large, high-risk, broad, or
+over-context tasks and returns mechanical ownership boundaries. It never
+invents job contracts or architecture; any recommendation requires a Codex
+decision before it can become an execution graph.
+
+`delegation_capability_canary` runs a normal task packet with forced low risk,
+one attempt, and shadow mode. A canary can collect observed capability evidence
+without creating a candidate that may be integrated.
