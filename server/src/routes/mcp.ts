@@ -8,6 +8,10 @@ import { getRoutingScores, getRoutingStrategy, setRoutingStrategy } from '../ser
 import type { RoutingStrategy } from '../services/scoring.js';
 import { getCacheStats } from '../services/cache.js';
 import {
+  executeDelegationGraph,
+  planDelegationGraph,
+} from '../services/delegation-graph.js';
+import {
   executeDelegateTask,
   executeCompareModelOutputs,
   executeDelegationPreset,
@@ -368,6 +372,47 @@ TOOLS.record_delegation_feedback = {
     required: ['task_id', 'outcome'],
   },
   run: recordDelegationFeedback,
+};
+
+const delegationGraphInputSchema: Record<string, unknown> = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    feature_brief: { type: 'string', maxLength: 10000 },
+    jobs: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 50,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string', pattern: '^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$' },
+          depends_on: { type: 'array', maxItems: 50, items: { type: 'string' }, default: [] },
+          owns_files: { type: 'array', maxItems: 100, items: { type: 'string' }, default: [] },
+          owns_logical_scopes: { type: 'array', maxItems: 100, items: { type: 'string' }, default: [] },
+          parallel_safety: { type: 'string', enum: ['safe', 'serialized', 'exclusive'], default: 'safe' },
+          task: delegationBase,
+        },
+        required: ['id', 'task'],
+      },
+    },
+    max_parallel: { type: 'integer', minimum: 1, maximum: 8, default: 3 },
+    time_limit_ms: { type: 'integer', minimum: 1000, maximum: 600000, default: 120000 },
+  },
+  required: ['jobs'],
+};
+
+TOOLS.plan_delegation_graph = {
+  description: 'Validate a dependency-aware delegation graph, reject cycles and parallel file/logical-scope conflicts, and return deterministic topological levels and a replay hash without running inference.',
+  inputSchema: delegationGraphInputSchema,
+  run: planDelegationGraph,
+};
+
+TOOLS.execute_delegation_graph = {
+  description: 'Execute a validated patch-returning delegation graph in bounded parallel batches with dependency verification gates, ownership protection, timeout propagation, and deterministic result ordering.',
+  inputSchema: delegationGraphInputSchema,
+  run: executeDelegationGraph,
 };
 
 // ── JSON-RPC dispatch ────────────────────────────────────────────────────

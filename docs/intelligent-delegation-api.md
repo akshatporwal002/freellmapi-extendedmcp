@@ -188,3 +188,29 @@ provider, and model. Below that floor, the result explicitly reports
 `selection_mode_fallback: "task_aware"`. With sufficient evidence, a bounded
 adjustment derived from observed acceptance quality and regressions augments
 task-aware ranking.
+
+## Dependency-aware job graphs
+
+`plan_delegation_graph` validates a graph without inference. Each job declares:
+
+- A stable id and dependency ids.
+- File and logical-scope ownership.
+- `parallel_safety`: `safe`, `serialized`, or `exclusive`.
+- A complete bounded `delegate_task` packet.
+
+The planner rejects unknown dependencies, cycles, and ownership overlap between
+jobs that could run concurrently. It returns topological levels, normalized
+ownership, a feature-brief hash, and a deterministic replay hash that contains
+only task/context hashes and classification metadata.
+
+`execute_delegation_graph` executes ready jobs in deterministic, bounded
+parallel batches. Jobs reach explicit states: `pending`, `running`, `verified`,
+`needs_review`, `abstained`, `failed`, `blocked`, or `cancelled`. A dependency
+may proceed only after its prerequisite returns a `pass` quality gate.
+Review-required or failed candidates block downstream work. The graph propagates
+its remaining wall-clock budget into each task, stops scheduling after timeout
+or cancellation, and never applies worker patches.
+
+An optional `feature_brief` is added as caller-supplied continuity context to
+each job. Provider/model concurrency remains enforced by the existing router's
+in-flight leases.

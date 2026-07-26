@@ -3,9 +3,9 @@
 ## Current phase and checkpoint
 
 - Branch: `codex/intelligent-delegation-dev`
-- Current phase: Phase 2
-- Checkpoint: privacy-safe feedback history and evidence-bounded adaptive routing
-- Remote status: quality policies pushed; adaptive-history checkpoint pending
+- Current phase: Phase 3
+- Checkpoint: dependency-aware patch-returning execution graphs
+- Remote status: Phase 2 adaptive history pushed; Phase 3 graph checkpoint pending
 
 ## Architecture decisions
 
@@ -59,6 +59,11 @@
   - `server/src/__tests__/db/migrate/roundtrip.test.ts`
   - `server/src/__tests__/db/migrate/delegation-history.test.ts`
   - delegation, routing, and MCP tests
+- Phase 3 job graphs:
+  - `server/src/services/delegation-graph.ts`
+  - `server/src/routes/mcp.ts`
+  - `server/src/__tests__/services/delegation-graph.test.ts`
+  - `server/src/__tests__/routes/mcp.test.ts`
 
 ## Verification log
 
@@ -76,6 +81,7 @@
 | Adaptive history and migration tests | Feedback, privacy-safe telemetry, minimum evidence fallback, bounded adaptive score, general migration round trip, and focused migration checks: 6 files, 60 tests passed. |
 | `npm test` | Phase 2 gate: all new and existing tests passed except the same two pre-existing Windows permission-bit assertions in `db/hardening.test.ts`. |
 | `npm run build` | Phase 2 gate passed for server and client; existing Vite large-chunk warning remains. |
+| Phase 3 graph tests | Deterministic planning/replay, cycle and ownership rejection, dependency serialization, bounded parallelism, verification gates, cancellation, MCP schemas, and routing regressions: 5 files, 62 tests passed. |
 
 The first sandboxed test attempt could not load the Vitest configuration because
 esbuild was denied access above the workspace. Required test/build commands are
@@ -93,7 +99,9 @@ therefore run with the approved unsandboxed execution path.
   `origin/codex/intelligent-delegation-dev`.
 - `1c4264f feat: add delegation verification and telemetry` — pushed to
   `origin/codex/intelligent-delegation-dev`.
-- Adaptive-history checkpoint — pending.
+- `e55a119 feat: add adaptive routing history` — pushed to
+  `origin/codex/intelligent-delegation-dev`.
+- Phase 3 graph checkpoint — pending.
 
 ## Known limitations
 
@@ -111,10 +119,13 @@ therefore run with the approved unsandboxed execution path.
 ## Deferred work
 
 - Phase 2 presets, review policies, feedback, and telemetry.
-- Phase 3 dependency-aware job graphs and concurrency controls.
+- Phase 3 persistent/resumable queues and in-flight provider cancellation are
+  not implemented; the current graph safely stops new dispatch and bounds each
+  provider call by its remaining time.
 - Phase 4 history-backed adaptive execution.
 
 ## Recommended next action
 
-Commit and push adaptive history, then continue with dependency-aware execution
-graph foundations.
+Commit and push graph foundations, then continue with Phase 4 calibration,
+decomposition recommendations, capability canaries, and counterfactual
+evaluation.

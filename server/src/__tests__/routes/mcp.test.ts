@@ -136,7 +136,9 @@ describe('MCP server (/mcp, stateless Streamable HTTP)', () => {
       'delegate_review',
       'delegate_task',
       'delegate_tests',
+      'execute_delegation_graph',
       'list_models',
+      'plan_delegation_graph',
       'provider_health',
       'record_delegation_feedback',
       'routing_info',
@@ -164,6 +166,18 @@ describe('MCP server (/mcp, stateless Streamable HTTP)', () => {
     expect(tool.inputSchema.additionalProperties).toBe(false);
     expect(tool.inputSchema.properties.outcome.enum).toEqual(['accepted', 'revised', 'rejected']);
     expect(tool.inputSchema.required).toEqual(['task_id', 'outcome']);
+  });
+
+  it('graph tools expose bounded jobs, ownership, parallelism, and time limits', async () => {
+    const { body } = await rpc({ jsonrpc: '2.0', id: 25, method: 'tools/list' });
+    for (const name of ['plan_delegation_graph', 'execute_delegation_graph']) {
+      const tool = body.result.tools.find((item: any) => item.name === name);
+      expect(tool.inputSchema.additionalProperties).toBe(false);
+      expect(tool.inputSchema.properties.jobs.maxItems).toBe(50);
+      expect(tool.inputSchema.properties.max_parallel.maximum).toBe(8);
+      expect(tool.inputSchema.properties.jobs.items.properties.parallel_safety.enum)
+        .toEqual(['safe', 'serialized', 'exclusive']);
+    }
   });
 
   it('specialized delegation tools expose schemas without caller-overridable category or output mode', async () => {
