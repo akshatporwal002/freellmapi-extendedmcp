@@ -230,7 +230,10 @@ function adaptiveScoresFor(
              WHEN 'revised' THEN 0.6
              WHEN 'rejected' THEN 0.0
            END) AS acceptance_quality,
-           AVG(CASE WHEN regression = 1 THEN 1.0 ELSE 0.0 END) AS regression_rate
+           AVG(CASE
+             WHEN regression = 1 THEN COALESCE(regression_confidence, 1.0)
+             WHEN regression = 0 THEN 0.0
+           END) AS regression_rate
       FROM delegation_history
      WHERE repository_hash = ?
        AND category = ?

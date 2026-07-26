@@ -49,11 +49,27 @@ describe('adaptive delegation evidence', () => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
     initDb(':memory:');
     const repositoryHash = createHash('sha256').update('adaptive-profile-repo').digest('hex');
+    getDb().prepare(`
+      INSERT OR IGNORE INTO models (
+        platform, model_id, display_name, intelligence_rank, speed_rank, size_label
+      ) VALUES (?, ?, ?, 1, 1, 'Small')
+    `).run('provider-a', 'model-a', 'Model A');
+    getDb().prepare(`
+      INSERT OR IGNORE INTO models (
+        platform, model_id, display_name, intelligence_rank, speed_rank, size_label
+      ) VALUES (?, ?, ?, 2, 2, 'Medium')
+    `).run('provider-b', 'model-b', 'Model B');
     seedHistory(repositoryHash, 'provider-a', 'model-a', Array(10).fill('accepted'));
     seedHistory(repositoryHash, 'provider-b', 'model-b', [
       'accepted', 'accepted', 'accepted', 'revised', 'revised',
       'rejected', 'rejected', 'rejected', 'rejected', 'rejected',
     ]);
+    getDb().prepare(`
+      UPDATE delegation_history
+         SET regression_attribution = 'probable',
+             regression_confidence = 0.4
+       WHERE task_id = 'provider-b-model-b-5'
+    `).run();
   });
 
   it('returns confidence-bounded profiles and progressive trust from reviewed outcomes', () => {
@@ -74,7 +90,9 @@ describe('adaptive delegation evidence', () => {
     expect(strong.trust_tier).toBe('verified_draft');
     const weak = result.profiles.find(profile => profile.model === 'model-b')!;
     expect(weak.regression_rate).toBe(0.5);
+    expect(weak.confidence_weighted_regression_rate).toBe(0.44);
     expect(weak.trust_tier).toBe('draft');
+    expect(strong.catalogue_available).toBe(true);
   });
 
   it('enforces a strict counterfactual exploration budget and shadow-only policy', () => {
@@ -98,6 +116,23 @@ describe('adaptive delegation evidence', () => {
       current_model: 'model-b',
       exploration_budget: 4,
     })).toThrow();
+
+    getDb().prepare(`
+      UPDATE models SET enabled = 0
+       WHERE platform = 'provider-a' AND model_id = 'model-a'
+    `).run();
+    const unavailable = evaluateDelegationCounterfactual({
+      repository_id: 'adaptive-profile-repo',
+      category: 'implementation',
+      current_provider: 'provider-b',
+      current_model: 'model-b',
+      exploration_budget: 1,
+    });
+    expect(unavailable.shadow_candidates).toEqual([]);
+    getDb().prepare(`
+      UPDATE models SET enabled = 1
+       WHERE platform = 'provider-a' AND model_id = 'model-a'
+    `).run();
   });
 
   it('uses confidence bounds for quality floors and savings estimates', () => {

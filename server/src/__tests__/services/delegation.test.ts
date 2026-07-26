@@ -381,16 +381,20 @@ describe('delegation service', () => {
       outcome: 'revised',
       edit_distance: 4,
       regression: false,
+      regression_attribution: { relationship: 'unrelated', confidence: 0.9 },
       review_tokens: 120,
     })).toEqual({ task_id: result.task_id, outcome: 'revised', recorded: true });
     const feedback = getDb().prepare(`
-      SELECT outcome, edit_distance, regression, review_tokens, feedback_at
+      SELECT outcome, edit_distance, regression, regression_attribution,
+             regression_confidence, review_tokens, feedback_at
       FROM delegation_history WHERE task_id = ?
     `).get(result.task_id) as Record<string, unknown>;
     expect(feedback).toMatchObject({
       outcome: 'revised',
       edit_distance: 4,
       regression: 0,
+      regression_attribution: 'unrelated',
+      regression_confidence: 0.9,
       review_tokens: 120,
     });
     expect(feedback.feedback_at).toBeTruthy();
@@ -401,5 +405,14 @@ describe('delegation service', () => {
       task_id: '00000000-0000-4000-8000-000000000000',
       outcome: 'accepted',
     })).toThrow('Unknown delegation task_id');
+  });
+
+  it('rejects inconsistent regression attribution', () => {
+    expect(() => recordDelegationFeedback({
+      task_id: '00000000-0000-4000-8000-000000000000',
+      outcome: 'rejected',
+      regression: false,
+      regression_attribution: { relationship: 'confirmed', confidence: 1 },
+    })).toThrow('unrelated requires regression=false');
   });
 });

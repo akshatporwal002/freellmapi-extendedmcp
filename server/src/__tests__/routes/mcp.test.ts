@@ -171,6 +171,7 @@ describe('MCP server (/mcp, stateless Streamable HTTP)', () => {
     const tool = body.result.tools.find((item: any) => item.name === 'record_delegation_feedback');
     expect(tool.inputSchema.additionalProperties).toBe(false);
     expect(tool.inputSchema.properties.outcome.enum).toEqual(['accepted', 'revised', 'rejected']);
+    expect(tool.inputSchema.properties.regression_attribution.properties.confidence.maximum).toBe(1);
     expect(tool.inputSchema.required).toEqual(['task_id', 'outcome']);
   });
 

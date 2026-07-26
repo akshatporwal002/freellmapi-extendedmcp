@@ -385,6 +385,15 @@ TOOLS.record_delegation_feedback = {
       outcome: { type: 'string', enum: ['accepted', 'revised', 'rejected'] },
       edit_distance: { type: 'integer', minimum: 0, maximum: 10000000 },
       regression: { type: 'boolean' },
+      regression_attribution: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          relationship: { type: 'string', enum: ['possible', 'probable', 'confirmed', 'unrelated'] },
+          confidence: { type: 'number', minimum: 0, maximum: 1 },
+        },
+        required: ['relationship', 'confidence'],
+      },
       review_tokens: { type: 'integer', minimum: 0, maximum: 10000000 },
     },
     required: ['task_id', 'outcome'],

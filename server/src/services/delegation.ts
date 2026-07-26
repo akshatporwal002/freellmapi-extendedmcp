@@ -174,8 +174,30 @@ export const delegationFeedbackSchema = z.object({
   outcome: z.enum(['accepted', 'revised', 'rejected']),
   edit_distance: z.number().int().min(0).max(10_000_000).optional(),
   regression: z.boolean().optional(),
+  regression_attribution: z.object({
+    relationship: z.enum(['possible', 'probable', 'confirmed', 'unrelated']),
+    confidence: z.number().min(0).max(1),
+  }).strict().optional(),
   review_tokens: z.number().int().min(0).max(10_000_000).optional(),
-}).strict();
+}).strict().superRefine((input, ctx) => {
+  if (!input.regression_attribution) return;
+  if (input.regression === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['regression'],
+      message: 'regression is required when regression_attribution is supplied',
+    });
+    return;
+  }
+  const saysRelated = input.regression_attribution.relationship !== 'unrelated';
+  if (input.regression !== saysRelated) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['regression_attribution', 'relationship'],
+      message: 'unrelated requires regression=false; other relationships require regression=true',
+    });
+  }
+});
 
 export type DelegationFeedbackInput = z.infer<typeof delegationFeedbackSchema>;
 
@@ -495,6 +517,8 @@ export function recordDelegationFeedback(rawInput: unknown): {
        SET outcome = ?,
            edit_distance = ?,
            regression = ?,
+           regression_attribution = ?,
+           regression_confidence = ?,
            review_tokens = ?,
            feedback_at = datetime('now')
      WHERE task_id = ?
@@ -502,6 +526,8 @@ export function recordDelegationFeedback(rawInput: unknown): {
     input.outcome,
     input.edit_distance ?? null,
     input.regression === undefined ? null : input.regression ? 1 : 0,
+    input.regression_attribution?.relationship ?? null,
+    input.regression_attribution?.confidence ?? null,
     input.review_tokens ?? null,
     input.task_id,
   );

@@ -178,6 +178,10 @@ Use `record_delegation_feedback` after Codex review:
   "outcome": "revised",
   "edit_distance": 14,
   "regression": false,
+  "regression_attribution": {
+    "relationship": "unrelated",
+    "confidence": 0.8
+  },
   "review_tokens": 320
 }
 ```
@@ -188,6 +192,16 @@ provider, and model. Below that floor, the result explicitly reports
 `selection_mode_fallback: "task_aware"`. With sufficient evidence, a bounded
 adjustment derived from observed acceptance quality and regressions augments
 task-aware ranking.
+
+Regression attribution is optional and uncertainty-aware. `relationship` is
+`possible`, `probable`, `confirmed`, or `unrelated`, paired with a confidence
+from zero to one and a consistent `regression` boolean. Adaptive penalties use
+the confidence-weighted signal while preserving the raw known-regression rate.
+
+Performance profiles mark whether each historical provider/model pair is still
+enabled in the local catalogue. Counterfactual recommendations exclude missing
+or disabled models, so historical success cannot route exploration toward
+capacity that no longer exists.
 
 ## Dependency-aware job graphs
 

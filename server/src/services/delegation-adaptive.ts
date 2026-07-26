@@ -34,11 +34,13 @@ export interface DelegationPerformanceProfile {
   usable_rate: number;
   usable_rate_confidence_95: { low: number; high: number };
   regression_rate: number | null;
+  confidence_weighted_regression_rate: number | null;
   avg_latency_ms: number;
   avg_output_tokens: number | null;
   avg_review_tokens: number | null;
   avg_edit_distance: number | null;
   trust_tier: 'suggest' | 'draft' | 'verified_draft' | 'routine_acceptance_candidate';
+  catalogue_available: boolean;
 }
 
 function hash(value: string): string {
@@ -99,39 +101,47 @@ export function getDelegationPerformanceProfiles(rawInput: unknown): {
   evidence_policy: { minimum_for_adaptive_routing: 5; confidence: 'wilson_95' };
 } {
   const input = profileQuerySchema.parse(rawInput);
-  const clauses = ['outcome IS NOT NULL', 'shadow_mode = 0', 'provider IS NOT NULL', 'model_id IS NOT NULL'];
+  const clauses = ['h.outcome IS NOT NULL', 'h.shadow_mode = 0', 'h.provider IS NOT NULL', 'h.model_id IS NOT NULL'];
   const params: unknown[] = [];
   if (input.repository_id) {
-    clauses.push('repository_hash = ?');
+    clauses.push('h.repository_hash = ?');
     params.push(hash(input.repository_id));
   }
   if (input.category) {
-    clauses.push('category = ?');
+    clauses.push('h.category = ?');
     params.push(input.category);
   }
   params.push(input.min_samples);
   const rows = getDb().prepare(`
-    SELECT repository_hash, category, provider, model_id,
+    SELECT h.repository_hash, h.category, h.provider, h.model_id,
            COUNT(*) AS samples,
-           SUM(CASE WHEN outcome = 'accepted' THEN 1 ELSE 0 END) AS accepted,
-           SUM(CASE WHEN outcome = 'revised' THEN 1 ELSE 0 END) AS revised,
-           SUM(CASE WHEN outcome = 'rejected' THEN 1 ELSE 0 END) AS rejected,
-           SUM(CASE WHEN regression = 1 THEN 1 ELSE 0 END) AS regressions,
-           SUM(CASE WHEN regression IS NOT NULL THEN 1 ELSE 0 END) AS regression_samples,
-           AVG(latency_ms) AS avg_latency_ms,
-           AVG(output_tokens) AS avg_output_tokens,
-           AVG(review_tokens) AS avg_review_tokens,
-           AVG(edit_distance) AS avg_edit_distance
-      FROM delegation_history
+           SUM(CASE WHEN h.outcome = 'accepted' THEN 1 ELSE 0 END) AS accepted,
+           SUM(CASE WHEN h.outcome = 'revised' THEN 1 ELSE 0 END) AS revised,
+           SUM(CASE WHEN h.outcome = 'rejected' THEN 1 ELSE 0 END) AS rejected,
+           SUM(CASE WHEN h.regression = 1 THEN 1 ELSE 0 END) AS regressions,
+           SUM(CASE WHEN h.regression = 1 THEN COALESCE(h.regression_confidence, 1.0) ELSE 0 END) AS weighted_regressions,
+           SUM(CASE WHEN h.regression IS NOT NULL THEN 1 ELSE 0 END) AS regression_samples,
+           AVG(h.latency_ms) AS avg_latency_ms,
+           AVG(h.output_tokens) AS avg_output_tokens,
+           AVG(h.review_tokens) AS avg_review_tokens,
+           AVG(h.edit_distance) AS avg_edit_distance,
+           CASE WHEN EXISTS (
+             SELECT 1 FROM models m
+              WHERE m.platform = h.provider
+                AND m.model_id = h.model_id
+                AND m.enabled = 1
+           ) THEN 1 ELSE 0 END AS catalogue_available
+      FROM delegation_history h
      WHERE ${clauses.join(' AND ')}
-     GROUP BY repository_hash, category, provider, model_id
+     GROUP BY h.repository_hash, h.category, h.provider, h.model_id
     HAVING COUNT(*) >= ?
      ORDER BY samples DESC, provider, model_id
   `).all(...params) as Array<{
     repository_hash: string; category: string; provider: string; model_id: string;
     samples: number; accepted: number; revised: number; rejected: number;
-    regressions: number; regression_samples: number; avg_latency_ms: number;
+    regressions: number; weighted_regressions: number; regression_samples: number; avg_latency_ms: number;
     avg_output_tokens: number | null; avg_review_tokens: number | null; avg_edit_distance: number | null;
+    catalogue_available: number;
   }>;
   return {
     profiles: rows.map(row => {
@@ -149,11 +159,15 @@ export function getDelegationPerformanceProfiles(rawInput: unknown): {
         usable_rate: round(usable / row.samples),
         usable_rate_confidence_95: wilson(usable, row.samples),
         regression_rate: row.regression_samples > 0 ? round(row.regressions / row.regression_samples) : null,
+        confidence_weighted_regression_rate: row.regression_samples > 0
+          ? round(row.weighted_regressions / row.regression_samples)
+          : null,
         avg_latency_ms: round(row.avg_latency_ms, 1),
         avg_output_tokens: row.avg_output_tokens == null ? null : round(row.avg_output_tokens, 1),
         avg_review_tokens: row.avg_review_tokens == null ? null : round(row.avg_review_tokens, 1),
         avg_edit_distance: row.avg_edit_distance == null ? null : round(row.avg_edit_distance, 1),
         trust_tier: trustTier(row.samples, row.accepted, usable, row.regressions),
+        catalogue_available: row.catalogue_available === 1,
       };
     }),
     evidence_policy: { minimum_for_adaptive_routing: 5, confidence: 'wilson_95' },
@@ -179,6 +193,7 @@ export function evaluateDelegationCounterfactual(rawInput: unknown) {
     category: input.category,
     min_samples: input.min_samples,
   }).profiles
+    .filter(profile => profile.catalogue_available)
     .filter(profile => profile.provider !== input.current_provider || profile.model !== input.current_model)
     .sort((a, b) =>
       b.usable_rate_confidence_95.low - a.usable_rate_confidence_95.low ||
