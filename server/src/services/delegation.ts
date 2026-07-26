@@ -9,14 +9,19 @@ import {
   type ExhaustionBody,
 } from '../lib/fallback-loop.js';
 import { contentToString } from '../lib/content.js';
-import { routeRequest, routingReserveTokens, type RouteResult } from './router.js';
+import {
+  routeRequest,
+  routingReserveTokens,
+  type ModelSelectionMode,
+  type RouteResult,
+} from './router.js';
 
 export const DELEGATION_SCHEMA_VERSION = '1.0';
 export const DELEGATION_PROMPT_VERSION = '1.0';
 export const DELEGATION_POLICY_VERSION = '1.0';
 
 export const selectionModeSchema = z.enum(['standard', 'task_aware', 'adaptive']);
-export type SelectionMode = z.infer<typeof selectionModeSchema>;
+export type SelectionMode = z.infer<typeof selectionModeSchema> & ModelSelectionMode;
 
 const categorySchema = z.enum([
   'implementation',
@@ -133,8 +138,24 @@ export interface DelegationDependencies {
 }
 
 const defaultDependencies: DelegationDependencies = {
-  route: (estimatedTokens, skipKeys, skipModels) =>
-    routeRequest(estimatedTokens, skipKeys, undefined, false, false, skipModels),
+  route: (estimatedTokens, skipKeys, skipModels, selectionMode, task) =>
+    routeRequest(
+      estimatedTokens,
+      skipKeys,
+      undefined,
+      false,
+      false,
+      skipModels,
+      undefined,
+      false,
+      task ? {
+        mode: selectionMode ?? 'task_aware',
+        category: task.category,
+        size: task.size,
+        risk: task.risk,
+        estimatedTokens,
+      } : undefined,
+    ),
   runFallback: runFallbackLoop,
   recordSuccess: recordUpstreamSuccess,
 };
@@ -264,6 +285,7 @@ function baseResult(input: DelegateTaskInput): Pick<
   return {
     output_mode: input.output_mode,
     selection_mode: input.selection_mode,
+    ...(input.selection_mode === 'adaptive' ? { selection_mode_fallback: 'task_aware' as const } : {}),
     codex_review_required: true,
     versions: {
       schema: DELEGATION_SCHEMA_VERSION,

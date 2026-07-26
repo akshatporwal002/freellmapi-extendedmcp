@@ -152,6 +152,20 @@ describe('delegation service', () => {
     });
   });
 
+  it('reports adaptive fallback when verified routing history is unavailable', async () => {
+    const worker = route(1, async () => response(JSON.stringify({
+      status: 'completed',
+      candidate: 'diff --git a/server/src/helper.ts b/server/src/helper.ts',
+      confidence: 0.6,
+    })));
+    const result = await executeDelegateTask(
+      { ...baseInput, selection_mode: 'adaptive' },
+      dependencies([worker]),
+    );
+    expect(result.selection_mode).toBe('adaptive');
+    expect(result.selection_mode_fallback).toBe('task_aware');
+  });
+
   it('uses the shared fallback loop and preserves a bounded attempt summary', async () => {
     const first = route(1, async () => {
       throw Object.assign(new Error('empty completion from test worker'), {
@@ -210,4 +224,3 @@ describe('delegation service', () => {
     expect(redacted.text).not.toContain('secret');
   });
 });
-

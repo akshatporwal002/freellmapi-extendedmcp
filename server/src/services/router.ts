@@ -137,6 +137,81 @@ export interface ChainRow {
   key_id: number | null;
 }
 
+// Model selection is orthogonal to RoutingStrategy. A strategy produces the
+// normal FreeLLMAPI order; task-aware selection layers bounded task metadata
+// over that order without changing the persisted strategy or standard calls.
+export type ModelSelectionMode = 'standard' | 'task_aware' | 'adaptive';
+
+export interface TaskSelectionContext {
+  mode: ModelSelectionMode;
+  category: 'implementation' | 'bug_fix' | 'debugging' | 'testing' | 'documentation' | 'review' | 'refactoring' | 'research' | 'repository_analysis';
+  size: 'small' | 'medium' | 'large';
+  risk: 'low' | 'medium' | 'high';
+  estimatedTokens: number;
+  requiresTools?: boolean;
+}
+
+const TASK_SIZE_TARGET: Record<TaskSelectionContext['size'], number> = {
+  small: 1,
+  medium: 2,
+  large: 3,
+};
+
+const MODEL_SIZE_VALUE: Record<string, number> = {
+  Small: 1,
+  Medium: 2,
+  Large: 3,
+  Frontier: 4,
+};
+
+/**
+ * Layer task suitability over the existing strategy-ranked chain. The
+ * strategy rank remains most of the score, so quota, reliability, health, and
+ * latency decisions already embedded by orderChain remain authoritative.
+ * Adaptive currently uses this same ranking until verified history exists.
+ */
+export function rankChainForSelection(
+  standardChain: ChainRow[],
+  selection?: TaskSelectionContext,
+): ChainRow[] {
+  if (!selection || selection.mode === 'standard' || standardChain.length < 2) {
+    return standardChain;
+  }
+  const count = standardChain.length;
+  return standardChain
+    .map((entry, index) => {
+      const standard = count === 1 ? 1 : 1 - index / (count - 1);
+      const modelSize = MODEL_SIZE_VALUE[entry.size_label] ?? 1;
+      const requestedSize = TASK_SIZE_TARGET[selection.size];
+      const riskFloor = selection.risk === 'high' ? 3 : selection.risk === 'medium' ? 2 : 1;
+      const requiredSize = Math.max(requestedSize, riskFloor);
+      const capability = modelSize >= requiredSize
+        ? 1
+        : Math.max(0, 1 - (requiredSize - modelSize) * 0.4);
+      const context = entry.context_window == null
+        ? 0.5
+        : Math.min(1, entry.context_window / Math.max(selection.estimatedTokens * 2, 1));
+      const codingCategory = ['implementation', 'bug_fix', 'debugging', 'testing', 'refactoring', 'review']
+        .includes(selection.category);
+      const toolCapability = selection.requiresTools
+        ? (entry.supports_tools ? 1 : 0)
+        : codingCategory ? (entry.supports_tools ? 1 : 0.65) : 0.8;
+      const weights = selection.risk === 'high'
+        ? { standard: 0.3, capability: 0.45, context: 0.15, tools: 0.1 }
+        : selection.risk === 'medium'
+          ? { standard: 0.5, capability: 0.3, context: 0.12, tools: 0.08 }
+          : { standard: 0.7, capability: 0.15, context: 0.1, tools: 0.05 };
+      const taskScore =
+        weights.standard * standard +
+        weights.capability * capability +
+        weights.context * context +
+        weights.tools * toolCapability;
+      return { entry, index, taskScore };
+    })
+    .sort((a, b) => b.taskScore - a.taskScore || a.index - b.index)
+    .map(item => item.entry);
+}
+
 export interface RouteResult {
   provider: BaseProvider;
   modelId: string;
@@ -1038,7 +1113,7 @@ export function resolveFusionCandidate(modelId: string): FusionCandidate | null 
   return null;
 }
 
-export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, preferredModelDbId?: number, requireVision = false, requireTools = false, skipModels?: Set<number>, prefetchedChain?: ChainRow[], requireStructured = false): RouteResult {
+export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, preferredModelDbId?: number, requireVision = false, requireTools = false, skipModels?: Set<number>, prefetchedChain?: ChainRow[], requireStructured = false, selection?: TaskSelectionContext): RouteResult {
   const db = getDb();
 
   const strategy = getRoutingStrategy();
@@ -1046,7 +1121,7 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
 
   const chain = (prefetchedChain ?? getActiveChain(db)).filter(e => e.enabled);
 
-  const sortedChain = orderChain(chain, strategy);
+  const sortedChain = rankChainForSelection(orderChain(chain, strategy), selection);
 
   // Sticky session / Explicit pinning: move preferred model to front of chain
   if (preferredModelDbId) {

@@ -3,10 +3,9 @@
 ## Current phase and checkpoint
 
 - Branch: `codex/intelligent-delegation-dev`
-- Current phase: Phase 1 phase gate complete; continuing into Phase 2
-- Checkpoint: bounded `delegate_task` vertical slice implemented, documented,
-  and verified
-- Remote status: planning checkpoint pushed; Phase 1 implementation commit pending
+- Current phase: Phase 2
+- Checkpoint: task-aware model selection and explicit adaptive fallback
+- Remote status: planning and Phase 1 checkpoints pushed; task-aware checkpoint pending
 
 ## Architecture decisions
 
@@ -29,13 +28,18 @@
   - `.gitignore`
   - `docs/README.md`
   - `docs/intelligent-codex-delegation.md`
-- Phase 1 work in progress:
+- Phase 1:
   - `server/src/services/delegation.ts`
   - `server/src/routes/mcp.ts`
   - `server/src/__tests__/services/delegation.test.ts`
   - `server/src/__tests__/routes/mcp.test.ts`
   - `docs/intelligent-delegation-api.md`
   - `docs/delegation-implementation-progress.md`
+- Phase 2 task-aware selection:
+  - `server/src/services/router.ts`
+  - `server/src/services/delegation.ts`
+  - `server/src/__tests__/services/delegation-routing.test.ts`
+  - `server/src/__tests__/services/delegation.test.ts`
 
 ## Verification log
 
@@ -47,6 +51,7 @@
 | Targeted delegation + MCP tests | Final rerun passed: 2 files, 26 tests. The first run had one new private-key redaction failure; the regex was corrected before the gate. |
 | `npm test` | Phase 1 gate: all delegation and existing tests passed except the same two pre-existing Windows permission-bit assertions in `db/hardening.test.ts`. |
 | `npm run build` | Phase 1 gate passed for server and client; existing Vite large-chunk warning remains. |
+| Targeted Phase 2 routing tests | Task-aware, adaptive fallback, standard compatibility, existing router, MCP, and delegation tests: 4 files, 43 tests passed after tuning high-risk capability weighting. |
 
 The first sandboxed test attempt could not load the Vitest configuration because
 esbuild was denied access above the workspace. Required test/build commands are
@@ -56,13 +61,15 @@ therefore run with the approved unsandboxed execution path.
 
 - `5e03234 docs: define delegation architecture and rollout` — pushed to
   `origin/codex/intelligent-delegation-dev`.
-- Phase 1 implementation commit — pending.
+- `6c3fa57 feat: add bounded delegate_task MCP tool` — pushed to
+  `origin/codex/intelligent-delegation-dev`.
+- Task-aware selection checkpoint — pending.
 
 ## Known limitations
 
-- `task_aware` and `adaptive` are represented in the Phase 1 contract, but model
-  ranking is still the existing standard router until the Phase 2 scoring
-  checkpoint lands.
+- Task-aware ranking currently uses catalog capability/context metadata layered
+  over the existing strategy order. It does not yet use delegation-specific
+  historical acceptance evidence.
 - Delegation telemetry is currently returned to the caller but is not persisted.
 - Verification commands are intentionally not accepted or executed in Phase 1;
   deterministic verification remains the caller's responsibility.
@@ -71,12 +78,11 @@ therefore run with the approved unsandboxed execution path.
 
 ## Deferred work
 
-- Phase 2 task-aware scoring, adaptive fallback, presets, review policies,
-  feedback, and telemetry.
+- Phase 2 presets, review policies, feedback, and telemetry.
 - Phase 3 dependency-aware job graphs and concurrency controls.
 - Phase 4 history-backed adaptive execution.
 
 ## Recommended next action
 
-Commit and push Phase 1, then implement task-aware ranking and adaptive fallback
-as the first Phase 2 checkpoint.
+Verify, commit, and push task-aware routing, then add specialized presets and
+deterministic candidate quality policies.

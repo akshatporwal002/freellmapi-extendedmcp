@@ -17,9 +17,12 @@ service never reads them.
 - `standard` preserves normal FreeLLMAPI routing.
 - `task_aware` is the delegation default and is the extension point for
   task-category, size, risk, capability, context, quota, health, latency, and
-  concurrency scoring.
+  concurrency scoring. It layers task suitability over the active routing
+  strategy's normal ordering; high-risk tasks give capability more weight,
+  while low-risk tasks preserve more of the standard order.
 - `adaptive` extends task-aware selection when sufficient verified history
-  exists and otherwise reports its fallback.
+  exists. Until that evidence exists, it uses task-aware ranking and returns
+  `"selection_mode_fallback": "task_aware"`.
 
 ### Request
 
@@ -128,4 +131,3 @@ the provider omits token accounting.
 - Workers cannot run verification commands. Codex must inspect and apply a
   candidate, then run deterministic checks in the repository.
 - `codex_review_required` is always `true`.
-
